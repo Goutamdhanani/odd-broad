@@ -1,0 +1,19 @@
+{
+  "name": "oddbroad-bizzhouse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BizzHouse — Multi-tenant WhatsApp Business API Platform",
+  "scripts": {
+    "start": "npm run dev:api",
+    "start:api": "npm --prefix bizzhouse-api run start:dev",
+    "start:web": "npm --prefix bizzhouse-web run dev",
+    "dev": "npm run dev:api",
+    "dev:api": "npm --prefix bizzhouse-api run start:dev",
+    "dev:web": "npm --prefix bizzhouse-web run dev",
+    "build": "npm --prefix bizzhouse-api run build && npm --prefix bizzhouse-web run build",
+    "build:api": "npm --prefix bizzhouse-api run build",
+    "build:web": "npm --prefix bizzhouse-web run build",
+    "test": "npm --prefix bizzhouse-api test",
+    "install:all": "npm --prefix bizzhouse-api install && npm --prefix bizzhouse-web install"
+  }
+}
