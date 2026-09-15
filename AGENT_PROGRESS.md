@@ -63,6 +63,16 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   page (60 queries for 30 threads → 2). Response shape byte-identical
   (camelCase mapping kept, `count`→`unread`), verified live against real
   Postgres via the demo shop. 2 new tests — 104/104 API green.
+- **Pass #9 — CSV import batching (first-run critical path)**:
+  `bulkImport` no longer runs findOne+save per row (5000-contact import
+  = 10k queries on the shop's very first onboarding step). Now:
+  normalize + intra-batch dedupe (first occurrence wins, tags merged),
+  chunked `IN` lookups (500/SELECT), one INSERT batch, and no-op UPDATEs
+  skipped (name compares before writing). Semantics preserved:
+  created/updated/skipped + auto-opt-in with consent timestamp.
+  4 new tests caught+fixed a missing name-equality check — 108/108
+  API green; verified live (created:2/updated:1/skipped:1 against the
+  demo shop, FK guard held, test rows cleaned after).
 
 ## Recent completed batches (pre-automation)
 

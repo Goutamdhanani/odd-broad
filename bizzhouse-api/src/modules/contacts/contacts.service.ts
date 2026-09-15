@@ -4,7 +4,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Contact } from './entities/contact.entity';
 import { normalizePhone } from '../../shared/phone.util';
 
@@ -152,55 +152,100 @@ export class ContactsService {
     return contact;
   }
 
+  /**
+   * Bulk CSV import, batched: instead of a findOne + save per row (2
+   * queries × 5000 rows on the shop's very first onboarding step), the
+   * whole import costs ~1 SELECT per 500 rows + one INSERT batch.
+   * Semantics preserved: invalid numbers skipped, new rows auto-opted-in
+   * with consent timestamp, existing rows merge name/tags and gain consent,
+   * duplicate numbers inside the batch merge into the first row.
+   */
   async bulkImport(
     shopId: string,
     items: Array<{ waId: string; name?: string; tags?: string[] }>,
   ) {
+    let skipped = 0;
     let created = 0;
     let updated = 0;
-    let skipped = 0;
 
+    // Normalize + drop invalid; first occurrence of a repeated waId wins
+    const byWaId = new Map<string, { name?: string; tags: string[] }>();
     for (const item of items) {
-      const normalizedWaId = normalizePhone(item.waId || '');
-      if (!normalizedWaId || normalizedWaId.length < 10) {
+      const waId = normalizePhone(item.waId || '');
+      if (!waId || waId.length < 10) {
         skipped++;
         continue;
       }
+      const acc = byWaId.get(waId);
+      if (!acc) {
+        byWaId.set(waId, { name: item.name, tags: [...(item.tags || [])] });
+      } else {
+        if (item.name) acc.name = item.name;
+        acc.tags = Array.from(new Set([...acc.tags, ...(item.tags || [])]));
+      }
+    }
 
-      let contact = await this.contactRepo.findOne({
-        where: { shopId, waId: normalizedWaId },
+    if (byWaId.size === 0) {
+      return { totalSubmitted: items.length, created, updated, skipped };
+    }
+
+    const waIds = [...byWaId.keys()];
+    const CHUNK = 500;
+    const existingByWaId = new Map<string, Contact>();
+
+    for (let i = 0; i < waIds.length; i += CHUNK) {
+      const chunk = waIds.slice(i, i + CHUNK);
+      const found = await this.contactRepo.find({
+        where: { shopId, waId: In(chunk) },
       });
+      for (const c of found) existingByWaId.set(c.waId, c);
+    }
 
-      if (!contact) {
-        contact = this.contactRepo.create({
-          shopId,
-          waId: normalizedWaId,
-          name: item.name || undefined,
-          tags: item.tags || [],
-          optedIn: true,
-          optedInAt: new Date(),
-        });
-        await this.contactRepo.save(contact);
+    const newRows: Contact[] = [];
+    const touched: Contact[] = [];
+
+    for (const [waId, data] of byWaId) {
+      const existing = existingByWaId.get(waId);
+      if (!existing) {
+        newRows.push(
+          this.contactRepo.create({
+            shopId,
+            waId,
+            name: data.name || undefined,
+            tags: data.tags,
+            optedIn: true,
+            optedInAt: new Date(),
+          }),
+        );
         created++;
       } else {
-        if (item.name) contact.name = item.name;
-        if (item.tags?.length) {
-          contact.tags = Array.from(new Set([...(contact.tags || []), ...item.tags]));
+        let changed = false;
+        if (data.name && data.name !== existing.name) {
+          existing.name = data.name;
+          changed = true;
         }
-        if (!contact.optedIn) {
-          contact.optedIn = true;
-          contact.optedInAt = new Date();
+        if (data.tags.length) {
+          const merged = Array.from(new Set([...(existing.tags || []), ...data.tags]));
+          if (merged.length !== (existing.tags || []).length) {
+            existing.tags = merged;
+            changed = true;
+          }
         }
-        await this.contactRepo.save(contact);
+        if (!existing.optedIn) {
+          existing.optedIn = true;
+          existing.optedInAt = new Date();
+          changed = true;
+        }
+        if (changed) touched.push(existing);
         updated++;
       }
     }
 
-    return {
-      totalSubmitted: items.length,
-      created,
-      updated,
-      skipped,
-    };
+    // save(array) batch-writes in one INSERT; unchanged-existing rows were
+    // filtered out so we never issue pointless UPDATEs.
+    if (newRows.length > 0) await this.contactRepo.save(newRows);
+    if (touched.length > 0) await this.contactRepo.save(touched);
+
+    return { totalSubmitted: items.length, created, updated, skipped };
   }
 }
