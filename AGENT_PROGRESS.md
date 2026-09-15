@@ -15,6 +15,12 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   Excel-safe BOM, formula-injection escaping in `buildCsv`, honors the same search/tag
   filters as the list view, registered before `:id`); Export button on the Contacts page
   downloads via authenticated blob request; 4 new unit tests (68 API tests green).
+- **Pass #2 — Request logging middleware**: `src/common/middleware/request-logger.ts`
+  mounted in `main.ts` after helmet — one line per finished request
+  (`METHOD route STATUS latencyMs`), UUID/numeric segments collapsed to `:id` for
+  low-cardinality logs, health probes + OPTIONS skipped, 5xx error-level, 4xx/slow(>1s)
+  warn-level. 7 new unit tests (75 API tests green); verified live:
+  `[HTTP] POST /api/auth/login 200 267ms`.
 
 ## Recent completed batches (pre-automation)
 

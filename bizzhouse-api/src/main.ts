@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { TenantContextInterceptor } from './common/interceptors/tenant-context.interceptor';
+import { requestLogger } from './common/middleware/request-logger';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -19,6 +20,9 @@ async function bootstrap() {
 
   // ─── Security ────────────────────────────────────
   app.use(helmet());
+
+  // ─── Observability: one log line per finished request ──
+  app.use(requestLogger);
 
   const allowedOrigins = [
     frontendUrl,
