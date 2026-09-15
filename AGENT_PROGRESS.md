@@ -27,6 +27,15 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   under the template-variable inputs (entered values highlighted, pending
   placeholders dimmed). Replaces the stale dark-mode raw-body box. 5 new web
   tests (20 web green), web build passes.
+- **Pass #4 — NumberHealthService test coverage + tier fix**: new
+  `number-health.service.spec.ts` — 21 tests locking the anti-ban contract:
+  tierCeiling mappings (incl. new **TIER_1M** handling — previously "TIER_1M"
+  parsed as ceiling 1), §2.3 scoring thresholds (RED→red, YELLOW→yellow,
+  failure-rate 10%/30% with the 20-send minimum sample, 70%/100% usage),
+  §2.4 routing (pinned live/red rejections, never auto-pick red, lowest usage
+  wins, all-red + no-numbers errors), canContinueSending, and pollRatings
+  (update vs "no event update available" vs never-throws-to-cron).
+  96/96 API tests now green; lint clean.
 
 ## Recent completed batches (pre-automation)
 

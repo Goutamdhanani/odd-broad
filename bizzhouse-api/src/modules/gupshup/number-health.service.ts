@@ -30,10 +30,12 @@ const TIER_CEILINGS: Record<string, number> = {
 export function tierCeiling(tier: string | null | undefined): number {
   if (!tier) return TIER_CEILINGS.TIER_250; // unverified default — conservative
   if (tier in TIER_CEILINGS) return TIER_CEILINGS[tier];
-  const match = tier.match(/TIER_(\d+)(K)?/i);
+  const match = tier.match(/TIER_(\d+)([KM])?/i);
   if (match) {
     const base = parseInt(match[1], 10);
-    return match[2] ? base * 1000 : base;
+    if (match[2]?.toUpperCase() === 'K') return base * 1_000;
+    if (match[2]?.toUpperCase() === 'M') return base * 1_000_000;
+    return base;
   }
   return TIER_CEILINGS.TIER_250;
 }
