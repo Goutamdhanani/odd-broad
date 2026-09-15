@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Contact } from './entities/contact.entity';
 import { normalizePhone } from '../../shared/phone.util';
+import { escapeCsvValue } from '../../shared/csv';
 
 @Injectable()
 export class ContactsService {
@@ -17,15 +18,11 @@ export class ContactsService {
 
   /**
    * Serialize contacts to CSV. Values that start with a formula character
-   * (= + - @ tab CR) are prefixed with ' so Excel does not execute them —
-   * contact names are user-controlled text imported from arbitrary CSVs.
+   * (= + - @ tab CR) are neutralized by the shared escaper so Excel does
+   * not execute them — contact names are user-controlled text.
    */
   buildCsv(rows: Array<Pick<Contact, 'name' | 'waId' | 'optedIn' | 'tags'>>): string {
-    const esc = (v: string): string => {
-      let s = v ?? '';
-      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
-      return `"${s.replace(/"/g, '""')}"`;
-    };
+    const esc = escapeCsvValue;
     const header = ['name', 'wa_id', 'opted_in', 'tags'];
     const lines = rows.map((r) =>
       [

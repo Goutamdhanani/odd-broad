@@ -15,6 +15,7 @@ describe('WalletService', () => {
 
     mockTxRepo = {
       findAndCount: vi.fn(),
+      find: vi.fn().mockResolvedValue([]),
     };
 
     mockDataSource = {
@@ -28,6 +29,52 @@ describe('WalletService', () => {
     };
 
     service = new WalletService(mockTxRepo, mockShopRepo, mockDataSource);
+  });
+
+  describe('exportCsv', () => {
+    it('writes header + one line per transaction with rupee amounts', async () => {
+      mockTxRepo.find.mockResolvedValue([
+        {
+          createdAt: new Date('2026-09-01T10:00:00Z'),
+          type: 'topup',
+          amountPaise: '50000',
+          balanceAfterPaise: '50000',
+          referenceId: 'pay_1',
+          description: 'Razorpay recharge',
+        },
+        {
+          createdAt: new Date('2026-09-02T10:00:00Z'),
+          type: 'debit',
+          amountPaise: '-150',
+          balanceAfterPaise: '49850',
+          referenceId: 'msg-1',
+          description: '=cmd|calc', // injection attempt
+        },
+      ]);
+
+      const csv = await service.exportCsv('shop-1');
+      const lines = csv.split('\r\n');
+      expect(lines[0]).toBe('date,type,amount_rupees,balance_after_rupees,reference_id,description');
+      expect(lines[1]).toBe('2026-09-01T10:00:00.000Z,topup,500.00,500.00,"pay_1","Razorpay recharge"');
+      // formula-leading description is neutralized
+      expect(lines[2]).toBe('2026-09-02T10:00:00.000Z,debit,-1.50,498.50,"msg-1","\'=cmd|calc"');
+    });
+
+    it('clamps the window and applies the cutoff filter', async () => {
+      await service.exportCsv('shop-1', 999);
+      const arg = mockTxRepo.find.mock.calls[0][0];
+      expect(arg.order.createdAt).toBe('DESC');
+      const cutoff: Date = arg.where.createdAt._value ?? arg.where.createdAt.value;
+      const ageDays = (Date.now() - cutoff.getTime()) / 86_400_000;
+      expect(ageDays).toBeGreaterThanOrEqual(364);
+      expect(ageDays).toBeLessThanOrEqual(366);
+    });
+
+    it('handles an empty ledger', async () => {
+      mockTxRepo.find.mockResolvedValue([]);
+      const csv = await service.exportCsv('shop-1');
+      expect(csv).toBe('date,type,amount_rupees,balance_after_rupees,reference_id,description');
+    });
   });
 
   describe('getBalance', () => {

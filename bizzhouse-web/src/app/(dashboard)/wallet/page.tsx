@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   CheckCircle2,
   X,
+  Download,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import axios from 'axios';
@@ -68,6 +69,7 @@ export default function WalletPage() {
   const [balanceLoading, setBalanceLoading] = useState(true);
   const [balance, setBalance] = useState(0);
   const [showTopupModal, setShowTopupModal] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState(1000);
   const [customAmount, setCustomAmount] = useState('');
   const [isProcessingTopup, setIsProcessingTopup] = useState(false);
@@ -105,6 +107,18 @@ export default function WalletPage() {
     loadBalance();
     loadTransactions(1);
   }, [loadBalance, loadTransactions]);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await walletApi.exportCsv(90);
+      toast.success('Ledger exported (last 90 days)');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Export failed'));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleTopup = async () => {
     const { user } = useAuthStore.getState();
@@ -350,6 +364,20 @@ export default function WalletPage() {
               </button>
             ))}
           </div>
+
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="bh-btn-secondary h-7 px-2.5 text-[11px] flex items-center gap-1.5 cursor-pointer shrink-0 self-start sm:self-auto"
+            title="Download last 90 days as CSV for accounting"
+          >
+            {exporting ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Download className="w-3 h-3" />
+            )}
+            <span>Export CSV</span>
+          </button>
         </div>
 
         {loading ? (

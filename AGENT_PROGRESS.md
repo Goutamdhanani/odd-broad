@@ -96,6 +96,13 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   save to targeted counter UPDATEs so a mid-batch cancel can't be clobbered.
   UI Stop button with confirm on live rows, cancelled badge. 4 new tests
   — 122/122 API green, web 20/20, route mapped live.
+- **Pass #13 — Wallet ledger CSV export**: `GET /api/wallet/transactions/export`
+  (days param, default 90, clamped 1-365) streams the shop's ledger as
+  Excel-safe CSV (BOM, ₹ conversions with ledger sign convention, escaped
+  reference/description). New shared `src/shared/csv.ts` (escapeCsvValue +
+  toCsv) — contacts export refactored onto it byte-identically. Wallet page
+  gets an Export CSV button. 8 new tests — 132/132 API green; CSV verified
+  live (topup rows with correct ₹ amounts, clamp path 200).
 
 ## Recent completed batches (pre-automation)
 

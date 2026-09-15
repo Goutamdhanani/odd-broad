@@ -77,6 +77,21 @@ export const walletApi = {
     api.post('/wallet/admin/credit', { shopId, amountPaise, description }),
   debit: (shopId: string, amountPaise: number, description?: string) =>
     api.post('/wallet/admin/debit', { shopId, amountPaise, description }),
+  /** Download the shop's ledger as a CSV for accounting (default last 90 days) */
+  exportCsv: async (days = 90) => {
+    const { data } = await api.get('/wallet/transactions/export', {
+      params: { days },
+      responseType: 'blob',
+    });
+    const url = URL.createObjectURL(data as Blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bizzhouse-wallet-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };
 
 // ─── Messages ──────────────────────────────────────────

@@ -1,12 +1,9 @@
-import {
-  Injectable,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, MoreThanOrEqual } from 'typeorm';
 import { WalletTransaction } from './entities/wallet-transaction.entity';
 import { Shop } from '../shops/entities/shop.entity';
+import { escapeCsvValue } from '../../shared/csv';
 
 @Injectable()
 export class WalletService {
@@ -61,6 +58,33 @@ export class WalletService {
       page,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  /**
+   * CSV export of the shop's ledger for accounting/reconciliation.
+   * Amounts as ₹ with explicit sign (debits negative, per the ledger's
+   * sign convention), newest first, capped window default 90 days.
+   */
+  async exportCsv(shopId: string, days = 90): Promise<string> {
+    const windowDays = Math.min(Math.max(days, 1), 365);
+    const cutoff = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+
+    const rows = await this.walletTransactionRepo.find({
+      where: { shopId, createdAt: MoreThanOrEqual(cutoff) },
+      order: { createdAt: 'DESC' },
+    });
+
+    const rupees = (paise: number | string) => (Number(paise) / 100).toFixed(2);
+    const header = ['date', 'type', 'amount_rupees', 'balance_after_rupees', 'reference_id', 'description'];
+    const lines = rows.map((r) => [
+      new Date(r.createdAt).toISOString(),
+      r.type,
+      rupees(r.amountPaise),
+      rupees(r.balanceAfterPaise),
+      escapeCsvValue(r.referenceId ?? ''),
+      escapeCsvValue(r.description ?? ''),
+    ]);
+    return [header.join(','), ...lines.map((l) => l.join(','))].join('\r\n');
   }
 
   /**

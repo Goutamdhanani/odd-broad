@@ -5,9 +5,11 @@ import {
   Body,
   UseGuards,
   Query,
+  Res,
   BadRequestException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import type { Response } from 'express';
 import { WalletService } from './wallet.service';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -38,6 +40,24 @@ export class WalletController {
       throw new BadRequestException('No shop associated with this account');
     }
     return this.walletService.getTransactions(shopId, page, limit);
+  }
+
+  @Get('transactions/export')
+  async exportTransactions(
+    @Res() res: Response,
+    @CurrentTenant('shopId') shopId: string,
+    @Query('days') days?: string,
+  ) {
+    if (!shopId) {
+      throw new BadRequestException('No shop associated with this account');
+    }
+    const csv = await this.walletService.exportCsv(shopId, parseInt(days || '90', 10) || 90);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="bizzhouse-wallet-${Date.now()}.csv"`,
+    );
+    res.send('\uFEFF' + csv);
   }
 
   // ─── Admin: manual wallet credit & debit ─────────────
