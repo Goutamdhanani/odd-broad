@@ -88,6 +88,21 @@ export class BroadcastsProcessor extends WorkerHost {
       let offset = 0;
 
       while (true) {
+        // Re-read the row between batches (cheap, once per 50 sends): a
+        // shop cancelling the campaign from the API stops dispatch here.
+        const fresh = await this.broadcastRepo.findOne({ where: { id: broadcast.id } });
+        if (fresh?.status === BroadcastStatus.CANCELLED) {
+          broadcast.status = BroadcastStatus.CANCELLED;
+          broadcast.completedAt = new Date();
+          broadcast.error = `Stopped by shop — ${broadcast.sentCount} sent before cancellation`;
+          await this.broadcastRepo.save(broadcast);
+          this.emitProgress(broadcast);
+          this.logger.log(
+            `Broadcast ${broadcast.id} cancelled mid-flight after ${broadcast.sentCount} sent`,
+          );
+          return;
+        }
+
         // Mid-campaign health guard (spec §2.4 step 3) — between batches,
         // not per message. RED → fail over or stop.
         const guard = await this.numberHealthService.canContinueSending(currentApp);
@@ -214,7 +229,15 @@ export class BroadcastsProcessor extends WorkerHost {
       );
     }
 
-    await this.broadcastRepo.save(broadcast);
+    // Targeted counter update — saving the whole entity here would overwrite
+    // a 'cancelled' status the API set between batches (race the next check
+    // at the batch boundary must see).
+    await this.broadcastRepo.update(broadcast.id, {
+      sentCount: broadcast.sentCount,
+      failedCount: broadcast.failedCount,
+      skippedCount: broadcast.skippedCount,
+      costPaise: Number(broadcast.costPaise),
+    });
     this.emitProgress(broadcast);
     return false;
   }

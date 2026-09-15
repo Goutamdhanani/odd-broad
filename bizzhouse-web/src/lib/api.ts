@@ -234,6 +234,8 @@ export const broadcastsApi = {
       readRate: number | null;
       updatedAt: string;
     }>(`/broadcasts/${id}/stats`),
+  /** Stop a queued/sending campaign — remaining recipients are skipped */
+  cancel: (id: string) => api.post(`/broadcasts/${id}/cancel`),
 };
 
 // ─── Pricing (platform admin) ──────────────────────────

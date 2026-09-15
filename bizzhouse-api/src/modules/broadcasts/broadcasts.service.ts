@@ -208,6 +208,31 @@ export class BroadcastsService {
   }
 
   /**
+   * Stop a queued or in-flight campaign. The dispatch worker reloads the
+   * row between batches and halts when it sees 'cancelled'; contacts
+   * already dispatched stay sent, the rest are skipped (no charges, and
+   * the skipped amount was never debited since debits happen per send).
+   */
+  async cancel(shopId: string, id: string) {
+    const broadcast = await this.broadcastRepo.findOne({ where: { id, shopId } });
+    if (!broadcast) throw new NotFoundException('Broadcast not found');
+    if (
+      broadcast.status !== BroadcastStatus.QUEUED &&
+      broadcast.status !== BroadcastStatus.SENDING
+    ) {
+      throw new BadRequestException(
+        `Only queued or sending campaigns can be stopped — this one is ${broadcast.status}`,
+      );
+    }
+
+    broadcast.status = BroadcastStatus.CANCELLED;
+    broadcast.completedAt = new Date();
+    await this.broadcastRepo.save(broadcast);
+    this.logger.log(`Broadcast '${broadcast.name}' (${broadcast.id}) cancelled by shop ${shopId}`);
+    return this.serialize(broadcast);
+  }
+
+  /**
    * Campaign summary (spec §2.1): live sent/delivered/read/failed counts
    * aggregated from the per-message rows, which status webhooks keep
    * current. Read-rate is of the delivered (reachable) portion.

@@ -18,7 +18,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { cn, getErrorMessage } from '@/lib/utils';
 import { splitTemplatePreview } from '@/lib/template-preview';
 import { broadcastsApi, templatesApi, gupshupApi, ConnectedNumber } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
@@ -29,7 +29,7 @@ interface Broadcast {
   templateName: string;
   templateLanguage: string;
   audienceTag: string | null;
-  status: 'queued' | 'sending' | 'completed' | 'failed';
+  status: 'queued' | 'sending' | 'completed' | 'failed' | 'cancelled';
   totalRecipients: number;
   sentCount: number;
   failedCount: number;
@@ -82,6 +82,7 @@ const STATUS_BADGE: Record<Broadcast['status'], string> = {
   sending: 'badge-cyan',
   queued: 'badge-yellow',
   failed: 'badge-red',
+  cancelled: 'bg-black/[0.04] text-[#6e6e73]',
 };
 
 export default function BroadcastsPage() {
@@ -96,6 +97,7 @@ export default function BroadcastsPage() {
     Record<string, Awaited<ReturnType<typeof broadcastsApi.stats>>['data']>
   >({});
   const [statsLoading, setStatsLoading] = useState(false);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -237,6 +239,22 @@ export default function BroadcastsPage() {
       );
     } finally {
       setLaunching(false);
+    }
+  };
+
+  const handleStop = async (id: string) => {
+    if (!window.confirm('Stop this campaign? Messages already sent stay sent; the rest are skipped and never charged.')) {
+      return;
+    }
+    setStoppingId(id);
+    try {
+      const { data } = await broadcastsApi.cancel(id);
+      setBroadcasts((prev) => prev.map((x) => (x.id === id ? { ...x, ...data } : x)));
+      toast.success('Campaign stopped');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not stop the campaign'));
+    } finally {
+      setStoppingId(null);
     }
   };
 
@@ -462,17 +480,36 @@ export default function BroadcastsPage() {
                         </div>
                       </td>
                       <td className="py-3.5 px-4">
-                        <span
-                          className={cn(
-                            'badge text-[10px]',
-                            STATUS_BADGE[b.status] || 'bg-black/[0.04] text-[#86868b]',
-                          )}
-                        >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={cn(
+                              'badge text-[10px]',
+                              STATUS_BADGE[b.status] || 'bg-black/[0.04] text-[#86868b]',
+                            )}
+                          >
+                            {(b.status === 'sending' || b.status === 'queued') && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#0071e3] animate-pulse" />
+                            )}
+                            {b.status.toUpperCase()}
+                          </span>
                           {(b.status === 'sending' || b.status === 'queued') && (
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#0071e3] animate-pulse" />
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStop(b.id);
+                              }}
+                              disabled={stoppingId === b.id}
+                              className="text-[10px] font-semibold text-red-600 hover:text-red-700 hover:bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/25 cursor-pointer disabled:opacity-50"
+                              title="Stop dispatching the remaining recipients"
+                            >
+                              {stoppingId === b.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                'Stop'
+                              )}
+                            </button>
                           )}
-                          {b.status.toUpperCase()}
-                        </span>
+                        </div>
                       </td>
                       <td className="py-3.5 px-4 font-bold text-[#6e6e73] tabular-nums">
                         {fmtRs(b.costPaise)}

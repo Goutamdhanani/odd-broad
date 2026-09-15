@@ -68,6 +68,17 @@ export class BroadcastsController {
     return this.broadcastsService.deliveryStats(shopId, id);
   }
 
+  @Post(':id/cancel')
+  async cancel(
+    @CurrentTenant('shopId') shopId: string,
+    @Param('id') id: string,
+  ) {
+    if (!shopId) {
+      throw new BadRequestException('No shop associated with this account');
+    }
+    return this.broadcastsService.cancel(shopId, id);
+  }
+
   @Get(':id')
   async getOne(
     @CurrentTenant('shopId') shopId: string,

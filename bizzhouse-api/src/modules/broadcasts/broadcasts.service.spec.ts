@@ -150,6 +150,54 @@ describe('BroadcastsService', () => {
     });
   });
 
+  describe('cancel', () => {
+    const bcast = (status: string) => ({
+      id: 'bcast-1',
+      shopId: 'shop-1',
+      name: 'Diwali Blast',
+      templateName: 'festive_offer_v2',
+      templateLanguage: 'en',
+      templateVariables: [],
+      audienceTag: null,
+      gupshupAppId: null,
+      status,
+      totalRecipients: 200,
+      sentCount: 10,
+      failedCount: 0,
+      skippedCount: 0,
+      costPaise: 1500,
+      error: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    it('cancels a queued campaign', async () => {
+      mockBroadcastRepo.findOne.mockResolvedValue(bcast('queued'));
+      const res = await service.cancel('shop-1', 'bcast-1');
+      expect(res.status).toBe('cancelled');
+      expect(mockBroadcastRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'cancelled' }),
+      );
+    });
+
+    it('cancels a sending campaign', async () => {
+      mockBroadcastRepo.findOne.mockResolvedValue(bcast('sending'));
+      const res = await service.cancel('shop-1', 'bcast-1');
+      expect(res.status).toBe('cancelled');
+    });
+
+    it('refuses to cancel a completed campaign', async () => {
+      mockBroadcastRepo.findOne.mockResolvedValue(bcast('completed'));
+      await expect(service.cancel('shop-1', 'bcast-1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('404s for another shop\'s campaign and never writes', async () => {
+      mockBroadcastRepo.findOne.mockResolvedValue(null);
+      await expect(service.cancel('shop-999', 'bcast-1')).rejects.toThrow(NotFoundException);
+      expect(mockBroadcastRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
   describe('deliveryStats', () => {
     const bcast = {
       id: 'bcast-1',

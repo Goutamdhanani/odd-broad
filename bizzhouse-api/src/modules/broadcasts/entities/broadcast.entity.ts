@@ -15,6 +15,7 @@ export enum BroadcastStatus {
   SENDING = 'sending',
   COMPLETED = 'completed',
   FAILED = 'failed',
+  CANCELLED = 'cancelled',
 }
 
 @Entity('broadcasts')
