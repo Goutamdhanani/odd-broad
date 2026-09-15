@@ -46,9 +46,14 @@ export class SeedService implements OnApplicationBootstrap {
   }
 
   async seedSuperAdmin(): Promise<void> {
-    const adminEmail = this.config.get<string>('admin.email') || 'admin@bizzhouse.com';
-    const adminPassword = this.config.get<string>('admin.password') || 'Admin@BizzHouse2026';
+    const adminEmail = (this.config.get<string>('admin.email') || 'admin@123').trim().toLowerCase();
+    const adminPassword = this.config.get<string>('admin.password') || 'password@123';
     const adminName = this.config.get<string>('admin.name') || 'Platform Admin';
+
+    // Credentials shipped before the 2026-09 credential reset — databases
+    // seeded with these are migrated to the configured defaults below.
+    const LEGACY_EMAIL = 'admin@bizzhouse.com';
+    const LEGACY_PASSWORD = 'Admin@BizzHouse2026';
 
     try {
       const existingAdmin = await this.userRepo.findOne({
@@ -56,7 +61,28 @@ export class SeedService implements OnApplicationBootstrap {
       });
 
       if (existingAdmin) {
-        this.logger.log(`Super admin account ready: ${existingAdmin.email}`);
+        const passwordMatches = await bcrypt.compare(adminPassword, existingAdmin.passwordHash);
+        if (existingAdmin.email === adminEmail && passwordMatches) {
+          this.logger.log(`Super admin account ready: ${existingAdmin.email}`);
+          return;
+        }
+
+        // Only migrate accounts still sitting on the shipped defaults —
+        // never clobber an admin who chose their own credentials.
+        const onLegacyEmail = existingAdmin.email === LEGACY_EMAIL;
+        const onLegacyPassword = await bcrypt.compare(LEGACY_PASSWORD, existingAdmin.passwordHash);
+        if (onLegacyEmail || onLegacyPassword) {
+          existingAdmin.email = adminEmail;
+          existingAdmin.passwordHash = await bcrypt.hash(adminPassword, 12);
+          await this.userRepo.save(existingAdmin);
+          this.logger.log(
+            `Super admin migrated from shipped defaults to ${adminEmail} (configured password)`,
+          );
+        } else {
+          this.logger.log(
+            `Super admin account ready: ${existingAdmin.email} (custom credentials preserved)`,
+          );
+        }
         return;
       }
 

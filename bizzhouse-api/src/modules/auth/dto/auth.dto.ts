@@ -24,7 +24,12 @@ export class RegisterDto {
 }
 
 export class LoginDto {
-  @IsEmail()
+  // Deliberately permissive: logins like "admin@123" are valid identifiers
+  // even though they are not RFC-5322 emails (registration still enforces
+  // real emails via @IsEmail).
+  @Matches(/^[^\s@]+@[^\s@]+$/, {
+    message: 'Identifier must look like user@host (e.g. admin@123)',
+  })
   email: string;
 
   @IsString()

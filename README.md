@@ -73,7 +73,7 @@ When started, the backend automatically:
 1. Synchronizes TypeORM tables to PostgreSQL.
 2. Connects to BullMQ Redis queues for webhook ingestion.
 3. Seeds default accounts:
-   - **Super Admin**: `admin@bizzhouse.com` / `Admin@BizzHouse2026`
+   - **Super Admin**: `admin@123` / `password@123`
    - **Demo Shop**: `demo@bizzhouse.com` / `Demo@BizzHouse2026` (Pre-funded with **₹500.00** credit and active WhatsApp connection)
 4. Listens on `http://localhost:3001` (Webhook endpoint: `http://localhost:3001/webhooks/gupshup`).
 
@@ -98,7 +98,7 @@ The Next.js frontend starts on `http://localhost:3000`.
 | Role | Email | Password | What You Can Test |
 |---|---|---|---|
 | **Shop Owner** | `demo@bizzhouse.com` | `Demo@BizzHouse2026` | Live WhatsApp Inbox, Contacts, Real-time WebSocket chat, Wallet balance (₹500.00) |
-| **Platform Admin** | `admin@bizzhouse.com` | `Admin@BizzHouse2026` | Platform Overview, Shop activation/suspension, Manual wallet crediting |
+| **Platform Admin** | `admin@123` | `password@123` | Platform Overview, Shop activation/suspension, Manual wallet crediting |
 
 ---
 

@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { messagesApi, contactsApi, templatesApi, teamApi } from '@/lib/api';
+import { messagesApi, contactsApi, templatesApi, teamApi, OutboundMediaUpload } from '@/lib/api';
 import { normalizeMessageContent } from '@/lib/normalize';
 import { MessageContent } from '@/components/messages/MessageContent';
 import { getSocket } from '@/lib/socket';
@@ -24,6 +24,10 @@ import {
   Clock,
   Smile,
   Zap,
+  FileText,
+  ImageIcon,
+  Film,
+  Music,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -42,7 +46,12 @@ interface MessageItem {
   direction: 'inbound' | 'outbound';
   messageType: string;
   status: string;
-  payload: { body?: string; caption?: string } | null;
+  payload: {
+    body?: string;
+    caption?: string;
+    mediaUrl?: string;
+    filename?: string;
+  } | null;
   createdAt: string;
   gupshupMessageId?: string;
 }
@@ -53,12 +62,28 @@ interface Conversation {
   unreadCount: number;
 }
 
+/** An attachment staged in the composer, ready to send. */
+interface PendingAttachment {
+  file: File;
+  type: 'image' | 'video' | 'document' | 'audio';
+  upload?: OutboundMediaUpload;
+  uploading: boolean;
+}
+
 const quickTemplates = [
   'Namaste! Welcome to BizzHouse support. How may we assist you today?',
   'Your order has been confirmed and is being processed for dispatch.',
   'Thanks for reaching out! A dedicated customer stylist will connect shortly.',
   'Please share your 6-digit pin code to verify delivery availability.',
 ];
+
+function mediaTypeOf(file: File): PendingAttachment['type'] | null {
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('video/')) return 'video';
+  if (file.type.startsWith('audio/')) return 'audio';
+  if (file.type.startsWith('application/') || file.type === 'text/plain') return 'document';
+  return null;
+}
 
 export default function InboxPage() {
   const { shop } = useAuthStore();
@@ -82,8 +107,10 @@ export default function InboxPage() {
   const [newChatPhone, setNewChatPhone] = useState('');
   const [newChatName, setNewChatName] = useState('');
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
 
   // Load conversations
   const loadConversations = useCallback(async () => {
@@ -221,33 +248,62 @@ export default function InboxPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Send message
+  // Send message (text, or the staged attachment)
   const handleSend = async (overrideText?: string) => {
     const textToSend = (overrideText || messageText).trim();
-    if (!textToSend || !activeContact || sending) return;
+    const att = attachment;
+    if ((!textToSend && !att) || !activeContact || sending) return;
+    if (att && (att.uploading || !att.upload)) {
+      toast.error('Attachment is still uploading');
+      return;
+    }
 
     setMessageText('');
     setShowQuickReplies(false);
     setSending(true);
 
     const tempId = `temp-${Date.now()}`;
-    const optimisticMsg: MessageItem = {
-      id: tempId,
-      direction: 'outbound',
-      messageType: 'text',
-      status: 'sending',
-      payload: { body: textToSend },
-      createdAt: new Date().toISOString(),
-    };
+    const optimisticMsg: MessageItem = att?.upload
+      ? {
+          id: tempId,
+          direction: 'outbound',
+          messageType: att.type,
+          status: 'sending',
+          payload: {
+            mediaUrl: att.upload.url,
+            caption: textToSend || undefined,
+            filename: att.upload.filename,
+          },
+          createdAt: new Date().toISOString(),
+        }
+      : {
+          id: tempId,
+          direction: 'outbound',
+          messageType: 'text',
+          status: 'sending',
+          payload: { body: textToSend },
+          createdAt: new Date().toISOString(),
+        };
     setMessages((prev) => [...prev, optimisticMsg]);
+    if (att) setAttachment(null);
 
     try {
-      const { data } = await messagesApi.send({
-        contactWaId: activeContact.waId,
-        type: 'text',
-        text: textToSend,
-        contactName: activeContact.name || undefined,
-      });
+      const { data } = att?.upload
+        ? await messagesApi.send({
+            contactWaId: activeContact.waId,
+            type: att.type,
+            mediaId: att.upload.mediaId,
+            mediaPreviewUrl: att.upload.url,
+            caption: textToSend || undefined,
+            filename: att.type === 'document' ? att.upload.filename : undefined,
+            contactName: activeContact.name || undefined,
+          })
+        : await messagesApi.send({
+            contactWaId: activeContact.waId,
+            type: 'text',
+            text: textToSend,
+            contactName: activeContact.name || undefined,
+          });
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? { ...data, status: data.status || 'sent' } : m))
       );
@@ -266,10 +322,35 @@ export default function InboxPage() {
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m))
       );
+      // Give the attachment back so the shop can retry without re-uploading
+      if (att?.upload) setAttachment(att);
       toast.error(getErrorMessage(err, 'Failed to deliver message'));
     } finally {
       setSending(false);
       inputRef.current?.focus();
+    }
+  };
+
+  // Stage an attachment: upload happens immediately (durable preview copy +
+  // real Gupshup mediaIds) so the send itself is one quick API call.
+  const handleAttach = async (file: File) => {
+    const type = mediaTypeOf(file);
+    if (!type) {
+      toast.error('Send images, videos, audio or documents');
+      return;
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      toast.error('File exceeds the 100MB limit');
+      return;
+    }
+    const staged: PendingAttachment = { file, type, uploading: true };
+    setAttachment(staged);
+    try {
+      const upload = await messagesApi.uploadMedia(file);
+      setAttachment({ ...staged, upload, uploading: false });
+    } catch (err) {
+      setAttachment(null);
+      toast.error(getErrorMessage(err, 'Attachment upload failed'));
     }
   };
 
@@ -754,39 +835,113 @@ export default function InboxPage() {
 
             {/* Composer Bar */}
             {activeContact.sessionOpen ? (
-              <div className="h-[60px] px-4 md:px-5 border-t border-black/[0.08] bg-black/[0.03] backdrop-blur-md flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  className="w-8 h-8 rounded-lg text-[#86868b] hover:text-[#1d1d1f] hover:bg-black/[0.03] flex items-center justify-center transition-all cursor-pointer shrink-0"
-                  title="Attach media"
-                >
-                  <Paperclip className="w-4 h-4" />
-                </button>
+              <div className="border-t border-black/[0.08] bg-black/[0.03] backdrop-blur-md shrink-0">
+                {/* Staged attachment preview */}
+                {attachment && (
+                  <div className="px-4 md:px-5 pt-3 animate-fade-in">
+                    <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white border border-black/[0.08] max-w-md">
+                      <div className="w-11 h-11 rounded-lg bg-[#0071e3]/10 border border-[#0071e3]/20 flex items-center justify-center shrink-0 overflow-hidden">
+                        {attachment.uploading ? (
+                          <Loader2 className="w-4 h-4 text-[#0071e3] animate-spin" />
+                        ) : attachment.type === 'image' && attachment.upload ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={attachment.upload.url}
+                            alt={attachment.file.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : attachment.type === 'video' ? (
+                          <Film className="w-4 h-4 text-[#0071e3]" />
+                        ) : attachment.type === 'audio' ? (
+                          <Music className="w-4 h-4 text-[#0071e3]" />
+                        ) : (
+                          <FileText className="w-4 h-4 text-[#0071e3]" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-semibold text-[#1d1d1f] truncate">
+                          {attachment.file.name}
+                        </div>
+                        <div className="text-[10px] text-[#86868b] flex items-center gap-1">
+                          {attachment.uploading ? (
+                            <>
+                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                              Uploading to WhatsApp…
+                            </>
+                          ) : attachment.upload ? (
+                            <>
+                              <Check className="w-2.5 h-2.5 text-emerald-600" />
+                              Ready ·{' '}
+                              {(attachment.file.size / 1024 / 1024).toLocaleString('en-IN', {
+                                maximumFractionDigits: 1,
+                              })}
+                              MB
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setAttachment(null)}
+                        disabled={sending}
+                        className="p-1.5 rounded-lg text-[#86868b] hover:text-[#1d1d1f] hover:bg-black/[0.04] cursor-pointer disabled:opacity-40"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={messageText}
-                  onChange={(e) => setMessageText(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                  placeholder="Type a WhatsApp message..."
-                  className="flex-1 h-[38px] px-3.5 rounded-lg bg-black/[0.04] border border-black/[0.08] text-[13px] text-[#1d1d1f] placeholder:text-[#86868b] focus:border-[rgba(56,189,248,0.55)] focus:bg-black/[0.05] focus:shadow-[0_0_0_3px_rgba(56,189,248,0.12)] focus:outline-none transition-all"
-                />
+                <div className="h-[60px] px-4 md:px-5 flex items-center gap-2">
+                  <input
+                    ref={mediaInputRef}
+                    type="file"
+                    accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleAttach(f);
+                      e.target.value = '';
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => mediaInputRef.current?.click()}
+                    disabled={!!attachment || sending}
+                    className="w-8 h-8 rounded-lg text-[#86868b] hover:text-[#1d1d1f] hover:bg-black/[0.03] flex items-center justify-center transition-all cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Attach image, video, audio or document"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </button>
 
-                <button
-                  onClick={() => handleSend()}
-                  disabled={!messageText.trim() || sending}
-                  className="bh-btn-primary h-[38px] px-4 text-xs shrink-0 !gap-1.5"
-                >
-                  {sending ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <>
-                      <span>Send</span>
-                      <Send className="w-3 h-3" />
-                    </>
-                  )}
-                </button>
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                    placeholder={
+                      attachment
+                        ? 'Add a caption (optional)…'
+                        : 'Type a WhatsApp message...'
+                    }
+                    className="flex-1 h-[38px] px-3.5 rounded-lg bg-black/[0.04] border border-black/[0.08] text-[13px] text-[#1d1d1f] placeholder:text-[#86868b] focus:border-[rgba(56,189,248,0.55)] focus:bg-black/[0.05] focus:shadow-[0_0_0_3px_rgba(56,189,248,0.12)] focus:outline-none transition-all"
+                  />
+
+                  <button
+                    onClick={() => handleSend()}
+                    disabled={sending || (!!attachment && !attachment.upload) || (!messageText.trim() && !attachment)}
+                    className="bh-btn-primary h-[38px] px-4 text-xs shrink-0 !gap-1.5 disabled:opacity-50"
+                  >
+                    {sending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <>
+                        <span>Send</span>
+                        <Send className="w-3 h-3" />
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="px-4 md:px-5 py-3 border-t border-black/[0.08] bg-white shrink-0 space-y-2.5">

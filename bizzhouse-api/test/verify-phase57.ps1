@@ -7,7 +7,7 @@ function Login($email, $pw) {
 }
 
 $demoToken = Login 'demo@bizzhouse.com' 'Demo@BizzHouse2026'
-$adminToken = Login 'admin@bizzhouse.com' 'Admin@BizzHouse2026'
+$adminToken = Login 'admin@123' 'password@123'
 $demoHdr = @{ Authorization = "Bearer $demoToken" }
 $adminHdr = @{ Authorization = "Bearer $adminToken" }
 

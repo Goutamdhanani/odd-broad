@@ -21,6 +21,9 @@ import { SendMessageDto } from './dto/send-message.dto';
 export class MessagesService {
   private readonly logger = new Logger(MessagesService.name);
 
+  /** Free-form message types bound by Meta's 24-hour session window. */
+  private static readonly MEDIA_SESSION_TYPES = ['image', 'video', 'document', 'audio'];
+
   constructor(
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
@@ -82,7 +85,10 @@ export class MessagesService {
       : 0;
     const sessionOpen = Date.now() - lastInbound < SESSION_WINDOW_MS;
 
-    if (dto.type === 'text' && !sessionOpen) {
+    if (
+      (dto.type === 'text' || MessagesService.MEDIA_SESSION_TYPES.includes(dto.type)) &&
+      !sessionOpen
+    ) {
       throw new BadRequestException(
         'The 24-hour session window is closed for this contact. Use an approved template to reach them.',
       );
@@ -143,15 +149,17 @@ export class MessagesService {
     const costPaise = this.pricingService.getCost(category, 'IN');
 
     // Provider payload stays exactly in Meta's shape; the stored copy gains
-    // a human-readable bodyText so the UI can render filled template text.
+    // a human-readable bodyText (templates) or the durable preview URL
+    // (media) so the UI can render it forever.
     const providerPayload = this.buildPayload(dto);
-    const storedPayload =
-      dto.type === 'template' && templateRow
-        ? {
-            ...providerPayload,
-            bodyText: fillTemplateBody(templateRow.body, dto.templateValues || []),
-          }
-        : providerPayload;
+    const storedPayload: Record<string, any> = { ...providerPayload };
+    if (dto.type === 'template' && templateRow) {
+      storedPayload.bodyText = fillTemplateBody(templateRow.body, dto.templateValues || []);
+    }
+    if (dto.mediaPreviewUrl) {
+      storedPayload.mediaUrl = dto.mediaPreviewUrl;
+      if (dto.filename) storedPayload.filename = dto.filename;
+    }
 
     const message = this.messageRepo.create({
       shopId,
@@ -482,22 +490,25 @@ export class MessagesService {
         components: dto.templateComponents || [],
       };
     }
-    // Media types — Meta Cloud API v3 passthrough format: each media
-    // object carries a `link` (publicly fetchable HTTPS URL), not `url`.
-    if (!dto.mediaUrl) {
-      throw new BadRequestException(`mediaUrl is required for ${dto.type} messages`);
+    // Media types — Meta Cloud API v3 passthrough format. An uploaded
+    // mediaId (POST /media/upload) is preferred; a public HTTPS `link` is
+    // the fallback. The internal preview URL is never sent upstream.
+    if (dto.type === 'image' || dto.type === 'video' || dto.type === 'document' || dto.type === 'audio') {
+      if (!dto.mediaId && !dto.mediaUrl) {
+        throw new BadRequestException(`mediaId or mediaUrl is required for ${dto.type} messages`);
+      }
+      const media = dto.mediaId ? { id: dto.mediaId } : { link: dto.mediaUrl };
+      switch (dto.type) {
+        case 'image':
+          return { ...media, caption: dto.caption };
+        case 'video':
+          return { ...media, caption: dto.caption };
+        case 'document':
+          return { ...media, caption: dto.caption, filename: dto.filename };
+        case 'audio':
+          return media;
+      }
     }
-    switch (dto.type) {
-      case 'image':
-        return { link: dto.mediaUrl, caption: dto.caption };
-      case 'video':
-        return { link: dto.mediaUrl, caption: dto.caption };
-      case 'document':
-        return { link: dto.mediaUrl, caption: dto.caption, filename: dto.filename };
-      case 'audio':
-        return { link: dto.mediaUrl };
-      default:
-        throw new BadRequestException(`Unsupported message type: ${dto.type}`);
-    }
+    throw new BadRequestException(`Unsupported message type: ${dto.type}`);
   }
 }

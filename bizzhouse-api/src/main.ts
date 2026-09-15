@@ -92,8 +92,8 @@ function validateProductionConfig(logger: Logger) {
   }
 
   const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || '';
-  if (adminPassword && adminPassword === 'Admin@BizzHouse2026') {
-    logger.warn('DEFAULT_ADMIN_PASSWORD is still the seeded default — rotate it before going live.');
+  if (adminPassword && (adminPassword === 'password@123' || adminPassword === 'Admin@BizzHouse2026')) {
+    logger.warn('DEFAULT_ADMIN_PASSWORD is still a shipped default — rotate it before going live.');
   }
 
   if (errors.length > 0) {

@@ -47,13 +47,27 @@ export class SendMessageDto {
   @IsString({ each: true })
   templateValues?: string[];
 
-  // For media messages — required when type is a media type
-  @ValidateIf((o) => ['image', 'video', 'document', 'audio'].includes(o.type))
+  // For media messages — either a public HTTPS link OR a mediaId from
+  // POST /media/upload (Meta id-based send). One of the two is required.
+  @ValidateIf(
+    (o) => ['image', 'video', 'document', 'audio'].includes(o.type) && !o.mediaId,
+  )
   @IsUrl(
     { require_tld: false },
     { message: 'mediaUrl must be a valid HTTPS URL the provider can fetch' },
   )
   mediaUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  mediaId?: string;
+
+  // Internal preview URL (object storage) persisted with the message so
+  // history keeps rendering the attachment; never sent to the provider.
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  mediaPreviewUrl?: string;
 
   @IsOptional()
   @IsString()

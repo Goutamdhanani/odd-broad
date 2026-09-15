@@ -141,6 +141,39 @@ export class MediaService implements OnModuleInit {
     }
   }
 
+  /**
+   * Durable storage for OUTBOUND media the shop attaches in the composer.
+   * Stored under shops/{shopId}/outbound/ so the message history keeps
+   * rendering the attachment forever (provider-side copies are not
+   * addressable by us). Returns the authenticated internal preview URL.
+   */
+  async storeOutbound(
+    shopId: string,
+    file: { buffer: Buffer; mimetype: string; originalname: string },
+  ): Promise<{ key: string; internalUrl: string; mimeType: string }> {
+    if (!file?.buffer?.length) {
+      throw new Error('storeOutbound requires non-empty file content');
+    }
+    const ext = this.extFor(file.mimetype) || this.extFromName(file.originalname);
+    const key = `shops/${shopId}/outbound/${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+
+    await this.s3.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      }),
+    );
+
+    return { key, internalUrl: `/api/media/${key}`, mimeType: file.mimetype };
+  }
+
+  private extFromName(name: string): string {
+    const dot = name?.lastIndexOf('.');
+    return dot >= 0 ? name.slice(dot) : '';
+  }
+
   private extFor(contentType: string): string {
     const map: Record<string, string> = {
       'image/jpeg': '.jpg',

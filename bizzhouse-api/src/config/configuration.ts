@@ -66,8 +66,8 @@ export default () => ({
   },
 
   admin: {
-    email: process.env.DEFAULT_ADMIN_EMAIL || 'admin@bizzhouse.com',
-    password: process.env.DEFAULT_ADMIN_PASSWORD || 'Admin@BizzHouse2026',
+    email: process.env.DEFAULT_ADMIN_EMAIL || 'admin@123',
+    password: process.env.DEFAULT_ADMIN_PASSWORD || 'password@123',
     name: process.env.DEFAULT_ADMIN_NAME || 'Platform Admin',
   },
 });

@@ -159,6 +159,84 @@ describe('MessagesService', () => {
       expect(mockMessageRepo.update).toHaveBeenCalledWith('msg-uuid-1', { status: 'failed' });
     });
 
+    it('should send media by mediaId and persist the preview URL for history rendering', async () => {
+      mockGupshupAppRepo.findOne.mockResolvedValue({
+        id: 'app-1',
+        shopId: 'shop-1',
+        gupshupAppId: 'gs-app-1',
+        wabaStatus: 'live',
+      });
+      mockContactRepo.findOne.mockResolvedValue({ id: 'c-1', waId: '919876543210', lastInboundAt: new Date() });
+      mockWalletService.debitForMessage.mockResolvedValue({ success: true, newBalance: 850 });
+      mockGupshupService.sendMessage.mockResolvedValue({
+        messages: [{ id: 'gupshup-msg-media' }],
+      });
+
+      const result = await service.sendMessage('shop-1', {
+        contactWaId: '919876543210',
+        type: 'image',
+        mediaId: '1852559851913765',
+        mediaPreviewUrl: '/api/media/shops/shop-1/outbound/x.jpg',
+        caption: 'New arrival!',
+        contactName: 'Pooja',
+      });
+
+      expect(result.status).toBe('sent');
+      // Provider got the id-based Meta shape, never the internal preview URL
+      expect(mockGupshupService.sendMessage).toHaveBeenCalledWith(
+        'gs-app-1',
+        '919876543210',
+        'image',
+        { id: '1852559851913765', caption: 'New arrival!' },
+      );
+      // Stored row keeps the durable preview for UI rendering
+      const stored = mockMessageRepo.create.mock.calls[0][0];
+      expect(stored.payload.mediaUrl).toBe('/api/media/shops/shop-1/outbound/x.jpg');
+      expect(stored.payload.caption).toBe('New arrival!');
+    });
+
+    it('should block media sends outside the 24h session window (Meta rule)', async () => {
+      mockGupshupAppRepo.findOne.mockResolvedValue({
+        id: 'app-1',
+        shopId: 'shop-1',
+        gupshupAppId: 'gs-app-1',
+        wabaStatus: 'live',
+      });
+      mockContactRepo.findOne.mockResolvedValue({
+        id: 'c-1',
+        waId: '919876543210',
+        lastInboundAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+        optedIn: true,
+      });
+
+      await expect(
+        service.sendMessage('shop-1', {
+          contactWaId: '919876543210',
+          type: 'image',
+          mediaId: '1852559851913765',
+        }),
+      ).rejects.toThrow(/24-hour session window/);
+
+      expect(mockGupshupService.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('should reject media with neither mediaId nor mediaUrl', async () => {
+      mockGupshupAppRepo.findOne.mockResolvedValue({
+        id: 'app-1',
+        shopId: 'shop-1',
+        gupshupAppId: 'gs-app-1',
+        wabaStatus: 'live',
+      });
+      mockContactRepo.findOne.mockResolvedValue({ id: 'c-1', waId: '919876543210', lastInboundAt: new Date() });
+
+      await expect(
+        service.sendMessage('shop-1', {
+          contactWaId: '919876543210',
+          type: 'image',
+        }),
+      ).rejects.toThrow(/mediaId or mediaUrl/);
+    });
+
     it('should reject template send outside session window when contact has not opted in (Meta policy)', async () => {
       mockGupshupAppRepo.findOne.mockResolvedValue({
         id: 'app-1',

@@ -85,7 +85,7 @@ $bal3 = (Invoke-RestMethod -Uri "$BASE/wallet/balance" -Headers $regHdr).balance
 Check "post-send balance sane ($bal3)" ($bal3 -ge 0 -and $bal3 -le 20000)
 
 # 11. Admin debit + RBAC (Phase 57)
-$adminToken = Login 'admin@bizzhouse.com' 'Admin@BizzHouse2026'
+$adminToken = Login 'admin@123' 'password@123'
 $adminHdr = @{ Authorization = "Bearer $adminToken" }
 $adj = Invoke-RestMethod -Uri "$BASE/wallet/admin/debit" -Method Post -Headers $adminHdr -ContentType 'application/json' -Body (@{ shopId = $shopId; amountPaise = 1000; description = 'smoke audit' } | ConvertTo-Json -Compress)
 Check 'admin debit works' ($adj.newBalancePaise -eq ($bal3 - 1000))

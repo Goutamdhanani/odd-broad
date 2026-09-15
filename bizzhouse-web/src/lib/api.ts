@@ -80,6 +80,15 @@ export const walletApi = {
 };
 
 // ─── Messages ──────────────────────────────────────────
+export interface OutboundMediaUpload {
+  url: string;
+  mediaKey: string;
+  mimeType: string;
+  filename: string;
+  mediaId: string;
+  mediaIds: Record<string, string>;
+}
+
 export const messagesApi = {
   send: (data: {
     contactWaId: string;
@@ -89,7 +98,26 @@ export const messagesApi = {
     templateName?: string;
     templateLanguage?: string;
     templateValues?: string[];
+    /** image | video | document | audio */
+    mediaId?: string;
+    /** Internal preview URL from media upload — stored with the message for history rendering */
+    mediaPreviewUrl?: string;
+    filename?: string;
+    caption?: string;
   }) => api.post('/messages/send', data),
+
+  /**
+   * Upload a file for outbound sending — stores a durable preview copy and
+   * returns real Gupshup mediaIds per live number for the actual send.
+   */
+  uploadMedia: async (file: File): Promise<OutboundMediaUpload> => {
+    const form = new FormData();
+    form.append('file', file);
+    const { data } = await api.post('/media/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
 
   getConversations: (page = 1, limit = 30) =>
     api.get('/messages/conversations', { params: { page, limit } }),
