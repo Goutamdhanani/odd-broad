@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { splitTemplatePreview } from '@/lib/template-preview';
 import { broadcastsApi, templatesApi, gupshupApi, ConnectedNumber } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 
@@ -626,15 +627,12 @@ export default function BroadcastsPage() {
 
                 {variableCount > 0 && (
                   <div className="space-y-2">
-                    <div className="text-xs font-medium text-slate-300">
+                    <div className="text-xs font-medium text-[#6e6e73]">
                       Template variables ({variableCount}) — applied to every message
-                    </div>
-                    <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[11px] text-slate-400 font-mono line-clamp-2">
-                      {selectedTemplateRow?.body}
                     </div>
                     {Array.from({ length: variableCount }).map((_, i) => (
                       <div key={i} className="flex items-center gap-2">
-                        <span className="text-[11px] text-slate-500 w-10 shrink-0">
+                        <span className="text-[11px] text-[#86868b] w-10 shrink-0 font-mono">
                           {'{{'}{i + 1}{'}}'}
                         </span>
                         <input
@@ -650,6 +648,33 @@ export default function BroadcastsPage() {
                         />
                       </div>
                     ))}
+                    {/* Live WhatsApp bubble preview — filled values highlighted, pending placeholders dimmed */}
+                    <div className="pt-1">
+                      <div className="text-[10px] uppercase font-bold tracking-wider text-[#86868b] mb-1.5">
+                        Customer preview
+                      </div>
+                      <div className="max-w-[85%] ml-auto px-3.5 py-2.5 rounded-xl bg-[#d9fdd3] border border-black/[0.06] text-[12px] leading-relaxed text-[#111b21] whitespace-pre-wrap break-words shadow-[0_1px_1px_rgba(0,0,0,0.06)]">
+                        {splitTemplatePreview(
+                          selectedTemplateRow?.body || '',
+                          bodyVariables,
+                        ).map((run, i) =>
+                          run.filled ? (
+                            <span
+                              key={i}
+                              className="font-semibold bg-[#0071e3]/10 text-[#0071e3] rounded px-0.5"
+                            >
+                              {run.text}
+                            </span>
+                          ) : run.pending ? (
+                            <span key={i} className="text-[#111b21]/35 font-mono text-[11px]">
+                              {run.text}
+                            </span>
+                          ) : (
+                            <span key={i}>{run.text}</span>
+                          ),
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
 

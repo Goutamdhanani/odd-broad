@@ -21,6 +21,12 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   low-cardinality logs, health probes + OPTIONS skipped, 5xx error-level, 4xx/slow(>1s)
   warn-level. 7 new unit tests (75 API tests green); verified live:
   `[HTTP] POST /api/auth/login 200 267ms`.
+- **Pass #3 — Broadcast wizard live preview**: `src/lib/template-preview.ts`
+  (`splitTemplatePreview` — pure runs of literal/filled/pending, positional
+  {{N}} semantics matching the provider) + a WhatsApp-style green bubble preview
+  under the template-variable inputs (entered values highlighted, pending
+  placeholders dimmed). Replaces the stale dark-mode raw-body box. 5 new web
+  tests (20 web green), web build passes.
 
 ## Recent completed batches (pre-automation)
 
