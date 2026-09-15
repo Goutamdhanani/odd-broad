@@ -89,6 +89,13 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   processed events are never removed so the replay path stays intact.
   Config + .env.example documented; 5 new tests — 118/118 API green;
   DELETE query with correct cutoff observed executing live on boot.
+- **Pass #12 — Campaign stop/cancel**: `POST /api/broadcasts/:id/cancel`
+  marks queued/sending campaigns `cancelled` (text column — no migration);
+  dispatch worker re-reads the row between batches and halts at the next
+  boundary. Race closed: per-message persistence switched from full-entity
+  save to targeted counter UPDATEs so a mid-batch cancel can't be clobbered.
+  UI Stop button with confirm on live rows, cancelled badge. 4 new tests
+  — 122/122 API green, web 20/20, route mapped live.
 
 ## Recent completed batches (pre-automation)
 
