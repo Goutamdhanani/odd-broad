@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { gupshupApi } from '@/lib/api';
+import { gupshupApi, ConnectedNumber } from '@/lib/api';
 import { useAuthStore } from '@/hooks/useAuth';
 import { cn, getErrorMessage } from '@/lib/utils';
 import {
@@ -18,11 +18,19 @@ import {
   ExternalLink,
   Radio,
   ShieldCheck,
+  Plus,
+  Inbox,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 type Step = 'choice' | 'connecting' | 'status';
 type WabaStatus = 'pending' | 'live' | 'rejected';
+
+const HEALTH_DOT: Record<string, string> = {
+  green: 'bg-emerald-500',
+  yellow: 'bg-amber-500',
+  red: 'bg-red-500',
+};
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -34,11 +42,30 @@ export default function OnboardingPage() {
   const [embedLink, setEmbedLink] = useState<string | null>(null);
   const [wabaStatus, setWabaStatus] = useState<WabaStatus>('pending');
   const [polling, setPolling] = useState(false);
+  // All numbers the shop has connected so far (multi-number, spec §2.4)
+  const [numbers, setNumbers] = useState<ConnectedNumber[]>([]);
+  // The app currently being onboarded (this flow creates a NEW app when
+  // none is pending — shops can connect several numbers over time)
+  const [currentAppId, setCurrentAppId] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     loadFromStorage();
   }, [loadFromStorage]);
+
+  const loadNumbers = useCallback(async () => {
+    try {
+      const { data } = await gupshupApi.getNumbers();
+      setNumbers(data.numbers || []);
+      return data.numbers || [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  useEffect(() => {
+    loadNumbers();
+  }, [loadNumbers]);
 
   useEffect(() => {
     if (shop?.businessName) setBusinessName(shop.businessName);
@@ -54,17 +81,17 @@ export default function OnboardingPage() {
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
-  const startPolling = useCallback(() => {
+  const startPolling = useCallback((appId: string | null) => {
     setPolling(true);
     pollRef.current = setInterval(async () => {
       try {
-        const { data } = await gupshupApi.getStatus();
-        const st = (data.app?.wabaStatus || 'pending') as WabaStatus;
+        const list = await loadNumbers();
+        const mine = appId ? list.find((n) => n.gupshupAppId === appId) : list.find((n) => n.wabaStatus === 'pending');
+        const st = (mine?.wabaStatus || 'pending') as WabaStatus;
         setWabaStatus(st);
         if (st === 'live') {
           stopPolling();
           toast.success('WhatsApp number connected!');
-          setTimeout(() => router.push('/inbox'), 1200);
         } else if (st === 'rejected') {
           stopPolling();
         }
@@ -72,7 +99,7 @@ export default function OnboardingPage() {
         // keep polling through transient errors
       }
     }, 3000);
-  }, [router, stopPolling]);
+  }, [loadNumbers, stopPolling]);
 
   const handleStart = async () => {
     if (!businessName.trim()) {
@@ -85,6 +112,7 @@ export default function OnboardingPage() {
         onboardingType,
       });
       setEmbedLink(data.embedSignupLink);
+      setCurrentAppId(data.appId || null);
       setWabaStatus(data.wabaStatus || 'pending');
       setStep('connecting');
     } catch (err) {
@@ -98,8 +126,19 @@ export default function OnboardingPage() {
     if (!embedLink) return;
     window.open(embedLink, '_blank', 'width=680,height=860');
     setStep('status');
-    startPolling();
+    startPolling(currentAppId);
   };
+
+  const connectAnother = () => {
+    stopPolling();
+    setWabaStatus('pending');
+    setEmbedLink(null);
+    setCurrentAppId(null);
+    setStep('choice');
+  };
+
+  const liveNumbers = numbers.filter((n) => n.wabaStatus === 'live');
+  const pendingNumbers = numbers.filter((n) => n.wabaStatus === 'pending');
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 relative">
@@ -123,6 +162,53 @@ export default function OnboardingPage() {
                   We&apos;ll set everything up — you&apos;ll never need Meta&apos;s developer console.
                 </p>
               </div>
+
+              {/* Connected numbers (multi-number, spec §2.4) */}
+              {numbers.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-xs font-semibold text-[#1d1d1f]">
+                    Your numbers ({liveNumbers.length} live)
+                  </div>
+                  {numbers.map((n) => (
+                    <div
+                      key={n.gupshupAppId}
+                      className="p-3 rounded-xl bg-black/[0.03] border border-black/[0.08] flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className={cn(
+                            'w-2 h-2 rounded-full',
+                            n.wabaStatus === 'live'
+                              ? HEALTH_DOT[n.health?.light || 'green']
+                              : 'bg-[#86868b] animate-pulse',
+                          )}
+                        />
+                        <div>
+                          <div className="text-xs font-bold text-[#1d1d1f]">
+                            {n.phoneNumber ? `+${n.phoneNumber}` : 'Number pending…'}
+                          </div>
+                          {n.wabaStatus === 'live' && n.health?.light !== 'green' && n.health?.reasons?.[0] && (
+                            <div className="text-[10px] text-[#86868b]">{n.health.reasons[0]}</div>
+                          )}
+                        </div>
+                      </div>
+                      <span
+                        className={cn(
+                          'badge text-[10px]',
+                          n.wabaStatus === 'live' && 'badge-green',
+                          n.wabaStatus === 'pending' && 'badge-yellow',
+                          n.wabaStatus === 'rejected' && 'badge-red',
+                        )}
+                      >
+                        {n.wabaStatus === 'live' ? 'LIVE' : n.wabaStatus === 'pending' ? 'PENDING' : 'REJECTED'}
+                      </span>
+                    </div>
+                  ))}
+                  <p className="text-[10px] text-[#86868b]">
+                    You can connect more numbers — campaigns route across all of them automatically.
+                  </p>
+                </div>
+              )}
 
               {/* Business name */}
               <div>
@@ -319,10 +405,26 @@ export default function OnboardingPage() {
                   <div>
                     <h1 className="type-h2 text-emerald-600">WhatsApp connected!</h1>
                     <p className="type-small text-[var(--bh-text-secondary)] mt-2">
-                      Your number is live on the official API. Taking you to your inbox…
+                      Your number is live on the official API. Import contacts, get a template
+                      approved, and start broadcasting.
                     </p>
                   </div>
-                  <Loader2 className="w-4 h-4 mx-auto animate-spin text-[#86868b]" />
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      onClick={() => router.push('/inbox')}
+                      className="bh-btn-primary h-10 text-xs cursor-pointer"
+                    >
+                      <Inbox className="w-3.5 h-3.5" />
+                      <span>Go to Inbox</span>
+                    </button>
+                    <button
+                      onClick={connectAnother}
+                      className="bh-btn-secondary h-10 text-xs cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Connect another number</span>
+                    </button>
+                  </div>
                 </>
               )}
 
