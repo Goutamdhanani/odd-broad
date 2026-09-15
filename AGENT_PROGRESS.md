@@ -103,6 +103,14 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   toCsv) — contacts export refactored onto it byte-identically. Wallet page
   gets an Export CSV button. 8 new tests — 132/132 API green; CSV verified
   live (topup rows with correct ₹ amounts, clamp path 200).
+- **Pass #14 — Campaign failure-reason breakdown**: deliveryStats now also
+  returns `failureReasons` — top 5 distinct (code,title) groups over the
+  campaign's failed messages (jsonb `payload->'failureReason'`), and the
+  broadcast detail panel lists them as "2× Error 131047: …" with the
+  "refunded automatically" note. 1 new test + mock plumbing — 133/133 API
+  green; verified live against real Postgres with a temp campaign +
+  failed rows (grouping correct, smoke data cleaned up, demo counts
+  restored to 2 messages / 0 broadcasts).
 
 ## Recent completed batches (pre-automation)
 

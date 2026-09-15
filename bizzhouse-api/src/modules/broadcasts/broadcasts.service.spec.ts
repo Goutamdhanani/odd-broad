@@ -46,6 +46,7 @@ describe('BroadcastsService', () => {
     };
     mockMessageRepo = {
       rawRows: [] as Array<{ status: string; count: string }>,
+      reasonRows: [] as Array<{ code: string; title: string; count: number }>,
       lastQb: null as any,
       createQueryBuilder: vi.fn(function () {
         const qb: any = {};
@@ -56,7 +57,10 @@ describe('BroadcastsService', () => {
         mockMessageRepo.lastQb = qb;
         return qb;
       }),
+      query: vi.fn(() => Promise.resolve([])),
     };
+    // query() resolves the mutable reason rows set per-test
+    mockMessageRepo.query = vi.fn(() => Promise.resolve(mockMessageRepo.reasonRows));
     mockWalletService = {
       getBalance: vi.fn().mockResolvedValue(100000),
     };
@@ -262,6 +266,25 @@ describe('BroadcastsService', () => {
       expect(stats.counts).toEqual({ queued: 0, sent: 0, delivered: 0, read: 0, failed: 0 });
       expect(stats.readRate).toBeNull();
       expect(stats.progressPct).toBe(0);
+      expect(stats.failureReasons).toEqual([]); // no failures -> no reason query needed
+    });
+
+    it('aggregates the top failure reasons when a campaign has failures', async () => {
+      mockMessageRepo.rawRows = [
+        { status: 'sent', count: '90' },
+        { status: 'failed', count: '10' },
+      ];
+      mockMessageRepo.reasonRows = [
+        { code: '131047', title: 'Re-engagement message required', count: 7 },
+        { code: '131026', title: 'Message undeliverable', count: 3 },
+      ];
+
+      const stats = await service.deliveryStats('shop-1', 'bcast-1');
+      expect(stats.counts.failed).toBe(10);
+      expect(stats.failureReasons).toEqual([
+        { code: '131047', title: 'Re-engagement message required', count: 7 },
+        { code: '131026', title: 'Message undeliverable', count: 3 },
+      ]);
     });
   });
 });

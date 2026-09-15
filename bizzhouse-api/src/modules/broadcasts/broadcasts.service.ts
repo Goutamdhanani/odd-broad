@@ -261,6 +261,33 @@ export class BroadcastsService {
     const read = byStatus['read'] || 0;
     const failed = byStatus['failed'] || 0;
 
+    // Why things failed: top 5 distinct provider error causes across this
+    // campaign's failed messages (failureReason persisted by pass #6).
+    let failureReasons: Array<{ code: string; title: string; count: number }> = [];
+    if (failed > 0) {
+      try {
+        const reasonRows = await this.messageRepo.query(
+          `SELECT payload->'failureReason'->>'code' AS code,
+                  payload->'failureReason'->>'title' AS title,
+                  COUNT(*)::int AS count
+           FROM messages
+           WHERE broadcast_id = $1 AND shop_id = $2 AND status = 'failed'
+             AND payload ? 'failureReason'
+           GROUP BY code, title
+           ORDER BY count DESC
+           LIMIT 5`,
+          [broadcastId, shopId],
+        );
+        failureReasons = (reasonRows as any[]).map((r) => ({
+          code: String(r.code ?? ''),
+          title: String(r.title ?? ''),
+          count: Number(r.count),
+        }));
+      } catch (err: any) {
+        this.logger.warn(`failureReason aggregation failed for ${broadcastId}: ${err?.message}`);
+      }
+    }
+
     // Progression semantics: delivered⊇read (a read message was delivered)
     const atLeastDelivered = delivered + read;
     const dispatched = queued + sent + atLeastDelivered + failed;
@@ -270,6 +297,7 @@ export class BroadcastsService {
       status: broadcast.status,
       totalRecipients: broadcast.totalRecipients,
       counts: { queued, sent, delivered: atLeastDelivered, read, failed },
+      failureReasons,
       progressPct:
         broadcast.totalRecipients > 0
           ? Math.round((dispatched / broadcast.totalRecipients) * 100)

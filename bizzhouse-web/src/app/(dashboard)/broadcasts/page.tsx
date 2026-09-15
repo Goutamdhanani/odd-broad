@@ -565,6 +565,24 @@ export default function BroadcastsPage() {
                                   </span>
                                 </div>
                               )}
+                              {!!stats[b.id]?.failureReasons?.length && (
+                                <div className="mt-2.5 pt-2.5 border-t border-black/[0.06] space-y-1">
+                                  <div className="text-[10px] font-semibold text-[#86868b]">
+                                    Top failure causes (refunded automatically):
+                                  </div>
+                                  {stats[b.id].failureReasons.map((r, i) => (
+                                    <div
+                                      key={i}
+                                      className="text-[11px] text-[#6e6e73] flex items-baseline gap-1.5"
+                                    >
+                                      <span className="font-mono text-[10px] text-red-600 font-bold shrink-0">
+                                        {r.count}× {r.code ? `Error ${r.code}:` : ''}
+                                      </span>
+                                      <span>{r.title || 'Unknown error'}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </td>
                         </tr>

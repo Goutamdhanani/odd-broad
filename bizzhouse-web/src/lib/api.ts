@@ -245,6 +245,7 @@ export const broadcastsApi = {
       status: string;
       totalRecipients: number;
       counts: { queued: number; sent: number; delivered: number; read: number; failed: number };
+      failureReasons: Array<{ code: string; title: string; count: number }>;
       progressPct: number;
       readRate: number | null;
       updatedAt: string;
