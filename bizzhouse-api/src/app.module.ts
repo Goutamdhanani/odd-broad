@@ -42,6 +42,7 @@ import { CreateRateCardsTable1788746773476 } from './database/migrations/1788746
 import { BroadcastsAndOptInTracking1789000000000 } from './database/migrations/1789000000000-BroadcastsAndOptInTracking';
 import { AutomationRules1789100000000 } from './database/migrations/1789100000000-AutomationRules';
 import { TeamAndAssignment1789200000000 } from './database/migrations/1789200000000-TeamAndAssignment';
+import { CarouselTemplatesAndNumberHealth1789300000000 } from './database/migrations/1789300000000-CarouselTemplatesAndNumberHealth';
 
 @Module({
   imports: [
@@ -81,6 +82,9 @@ import { TeamAndAssignment1789200000000 } from './database/migrations/1789200000
           CreateTemplatesTable1788746773475,
           CreateRateCardsTable1788746773476,
           BroadcastsAndOptInTracking1789000000000,
+          AutomationRules1789100000000,
+          TeamAndAssignment1789200000000,
+          CarouselTemplatesAndNumberHealth1789300000000,
         ],
         migrationsRun: true,
         synchronize: false,

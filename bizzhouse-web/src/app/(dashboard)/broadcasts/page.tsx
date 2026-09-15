@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { broadcastsApi, templatesApi } from '@/lib/api';
+import { broadcastsApi, templatesApi, gupshupApi, ConnectedNumber } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 
 interface Broadcast {
@@ -44,7 +44,15 @@ interface TemplateRow {
   status: string;
   language: string;
   body: string;
+  templateType?: string;
+  cards?: Array<{ body: string }> | null;
 }
+
+const HEALTH_LIGHT: Record<string, { dot: string; label: string }> = {
+  green: { dot: 'bg-emerald-500', label: 'Healthy' },
+  yellow: { dot: 'bg-amber-500', label: 'Warning' },
+  red: { dot: 'bg-red-500', label: 'At risk' },
+};
 
 const fmtRs = (paise: number) =>
   `₹${(Number(paise || 0) / 100).toLocaleString('en-IN', {
@@ -92,6 +100,14 @@ export default function BroadcastsPage() {
     estimatedCostPaise: number;
   } | null>(null);
   const [bodyVariables, setBodyVariables] = useState<string[]>([]);
+  // Sending number (spec §2.4): '' = let the health-aware router pick
+  const [numbers, setNumbers] = useState<ConnectedNumber[]>([]);
+  const [selectedNumber, setSelectedNumber] = useState<string>('');
+  const [confirmUnhealthy, setConfirmUnhealthy] = useState(false);
+
+  const liveNumbers = useMemo(() => numbers.filter((n) => n.wabaStatus === 'live'), [numbers]);
+  const selectedNumberRow = liveNumbers.find((n) => n.gupshupAppId === selectedNumber);
+  const pinnedIsRed = selectedNumberRow?.health.light === 'red';
 
   const approvedTemplates = useMemo(
     () => templates.filter((t) => t.status === 'APPROVED'),
@@ -102,8 +118,17 @@ export default function BroadcastsPage() {
   const selectedTemplateRow = approvedTemplates.find(
     (t) => t.elementName === selectedTemplate,
   );
+  // Distinct {{N}} placeholders across the body AND carousel card bodies —
+  // card variables continue the main body's numbering (spec §3.4)
   const variableCount = selectedTemplateRow
-    ? new Set((selectedTemplateRow.body || '').match(/\{\{\d+\}\}/g) || []).size
+    ? new Set(
+        [
+          ...(selectedTemplateRow.body || '').matchAll(/\{\{\d+\}\}/g),
+          ...(selectedTemplateRow.cards || []).flatMap((c) =>
+            [...(c.body || '').matchAll(/\{\{\d+\}\}/g)],
+          ),
+        ].map((m) => m[0]),
+      ).size
     : 0;
 
   const allTags = useMemo(() => {
@@ -147,6 +172,15 @@ export default function BroadcastsPage() {
     };
   }, []);
 
+  // Sending numbers + their health lights — refreshed whenever the wizard opens
+  useEffect(() => {
+    if (!showBuilder) return;
+    gupshupApi
+      .getNumbers()
+      .then(({ data }) => setNumbers(data.numbers || []))
+      .catch(() => setNumbers([]));
+  }, [showBuilder]);
+
   // Live estimate whenever audience/template changes in the wizard
   useEffect(() => {
     if (!showBuilder) return;
@@ -176,6 +210,8 @@ export default function BroadcastsPage() {
         templateName: selectedTemplate,
         audienceTag: selectedTag || undefined,
         bodyVariables: variableCount > 0 ? bodyVariables : undefined,
+        gupshupAppId: selectedNumber || undefined,
+        confirmUnhealthyNumber: pinnedIsRed && confirmUnhealthy ? true : undefined,
       });
       toast.success(
         `Broadcast queued: ${data.estimatedCostPaise !== undefined ? `est. ${fmtRs(data.estimatedCostPaise)}` : ''} for ${data.broadcast?.totalRecipients ?? estimate?.recipientCount ?? 0} contacts`,
@@ -572,7 +608,12 @@ export default function BroadcastsPage() {
                         )}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs font-bold text-[#1d1d1f]">
+                          <span className="font-mono text-xs font-bold text-[#1d1d1f] flex items-center gap-1.5">
+                            {t.templateType === 'CAROUSEL' && (
+                              <span className="badge badge-cyan text-[9px]">
+                                {t.cards?.length ?? 0}-card collage
+                              </span>
+                            )}
                             {t.elementName}
                           </span>
                           <span className="badge badge-green text-[9px]">{t.category}</span>
@@ -675,12 +716,99 @@ export default function BroadcastsPage() {
                   )}
                 </div>
 
+                {/* Sending number (spec §2.4) — health lights per number */}
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-[#6e6e73]">Sending number</div>
+                  {liveNumbers.length === 0 ? (
+                    <div className="p-3 rounded-xl border border-black/[0.08] bg-black/[0.03] text-[11px] text-[#86868b]">
+                      No live WhatsApp number connected — connect one from Onboarding first.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <label
+                        className={cn(
+                          'p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all',
+                          selectedNumber === ''
+                            ? 'bg-[#0071e3]/10 border-[#0071e3]/40'
+                            : 'bg-black/[0.03] border-black/[0.06]',
+                        )}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="radio"
+                            name="number"
+                            checked={selectedNumber === ''}
+                            onChange={() => { setSelectedNumber(''); setConfirmUnhealthy(false); }}
+                            className="accent-[#0071e3]"
+                          />
+                          <div>
+                            <div className="text-xs font-bold text-[#1d1d1f]">Auto (recommended)</div>
+                            <div className="text-[10px] text-[#86868b]">
+                              Router picks your healthiest number and fails over if one degrades mid-campaign
+                            </div>
+                          </div>
+                        </div>
+                      </label>
+                      {liveNumbers.map((n) => {
+                        const light = HEALTH_LIGHT[n.health.light];
+                        return (
+                          <label
+                            key={n.gupshupAppId}
+                            className={cn(
+                              'p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all',
+                              selectedNumber === n.gupshupAppId
+                                ? 'bg-[#0071e3]/10 border-[#0071e3]/40'
+                                : 'bg-black/[0.03] border-black/[0.06]',
+                            )}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <input
+                                type="radio"
+                                name="number"
+                                checked={selectedNumber === n.gupshupAppId}
+                                onChange={() => { setSelectedNumber(n.gupshupAppId); setConfirmUnhealthy(false); }}
+                                className="accent-[#0071e3]"
+                              />
+                              <div>
+                                <div className="text-xs font-bold text-[#1d1d1f] flex items-center gap-1.5">
+                                  <span className={cn('w-2 h-2 rounded-full', light.dot)} />
+                                  +{n.phoneNumber || 'pending number'}
+                                </div>
+                                <div className="text-[10px] text-[#86868b]">
+                                  {light.label}
+                                  {n.health.light !== 'green' && n.health.reasons.length > 0
+                                    ? ` — ${n.health.reasons[0]}`
+                                    : n.health.messagingTier
+                                      ? ` · ${n.health.sentLast24h}/${n.health.dailyCeiling} sent today`
+                                      : ''}
+                                </div>
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                      {pinnedIsRed && (
+                        <label className="p-3 rounded-xl bg-red-50 border border-red-200 flex items-start gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={confirmUnhealthy}
+                            onChange={(e) => setConfirmUnhealthy(e.target.checked)}
+                            className="accent-red-600 mt-0.5"
+                          />
+                          <span className="text-[11px] text-red-700 leading-snug">
+                            This number is at risk of Meta restricting it. I understand the risk and
+                            want to send from it anyway.
+                          </span>
+                        </label>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div className="p-3 rounded-xl bg-[#0071e3]/[0.05] border border-[#0071e3]/20 text-[11px] text-[#6e6e73] flex gap-2">
                   <Send className="w-3.5 h-3.5 text-[#0071e3] shrink-0 mt-0.5" />
                   <span>
-                    Messages dispatch immediately after launch. Each send is debited
-                    atomically from your wallet; the broadcast stops early if the balance
-                    runs out.
+                    Messages dispatch immediately after launch. Each send is debited atomically from your wallet; the broadcast stops early if the balance runs out.
                   </span>
                 </div>
 
@@ -693,7 +821,7 @@ export default function BroadcastsPage() {
                   </button>
                   <button
                     onClick={handleLaunch}
-                    disabled={launching}
+                    disabled={launching || liveNumbers.length === 0 || (pinnedIsRed && !confirmUnhealthy)}
                     className="bh-btn-primary h-9 px-5 text-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
                   >
                     {launching ? (

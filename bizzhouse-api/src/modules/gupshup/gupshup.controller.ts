@@ -13,6 +13,7 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { GupshupApp } from './entities/gupshup-app.entity';
 import { GupshupService } from './gupshup.service';
+import { NumberHealthService } from './number-health.service';
 import { Shop } from '../shops/entities/shop.entity';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -28,6 +29,7 @@ export class GupshupController {
     @InjectRepository(Shop)
     private readonly shopRepo: Repository<Shop>,
     private readonly gupshupService: GupshupService,
+    private readonly numberHealthService: NumberHealthService,
     private readonly config: ConfigService,
   ) {}
 
@@ -52,9 +54,40 @@ export class GupshupController {
   }
 
   /**
-   * Live WhatsApp connectivity snapshot for the shop's own app:
-   * WABA health, Meta quality rating, and messaging tier where
-   * the provider reports it. Mock mode returns clearly-labeled mocks.
+   * Every number this shop has connected, each with its composite health
+   * (traffic light, quality rating, tier, 24h usage/failures) — spec §2.3/2.4.
+   */
+  @Get('numbers')
+  async getNumbers(@CurrentTenant('shopId') shopId: string) {
+    return { numbers: await this.numberHealthService.getShopNumbers(shopId) };
+  }
+
+  /**
+   * On-demand ratings refresh. The Gupshup ratings API is rate-limited
+   * (10 req/min) and moves ~daily, so an explicit cooldown guards it;
+   * the scheduled poll remains the primary source.
+   */
+  @Post('numbers/ratings/refresh')
+  async refreshRatings(@CurrentTenant('shopId') shopId: string) {
+    const apps = await this.gupshupAppRepo.find({ where: { shopId } });
+    const live = apps.filter((a) => a.wabaStatus === 'live');
+    if (live.length === 0) {
+      throw new BadRequestException('No live numbers to refresh ratings for');
+    }
+    const cooldownMs = 10 * 60 * 1000;
+    const freshest = Math.max(
+      ...live.map((a) => (a.lastRatingsCheck ? new Date(a.lastRatingsCheck).getTime() : 0)),
+    );
+    if (Date.now() - freshest < cooldownMs) {
+      return { refreshed: false, reason: 'Ratings were checked recently — using cached values' };
+    }
+    await this.numberHealthService.pollRatings();
+    return { refreshed: true, numbers: await this.numberHealthService.getShopNumbers(shopId) };
+  }
+
+  /**
+   * Live WhatsApp connectivity snapshot for the shop's first live app.
+   * Health lights for all numbers live under GET /gupshup/numbers.
    */
   @Get('quality')
   async getQuality(@CurrentTenant('shopId') shopId: string) {
@@ -87,6 +120,11 @@ export class GupshupController {
     };
   }
 
+  /**
+   * Start onboarding another number. A shop can have many numbers
+   * (spec §2.4): each call that finds no still-pending app creates a NEW
+   * Gupshup app row; a pending app is resumed instead of duplicated.
+   */
   @Post('onboard')
   async startOnboarding(
     @CurrentTenant('shopId') shopId: string,
@@ -98,7 +136,10 @@ export class GupshupController {
       throw new BadRequestException('onboardingType is required (new_number or existing_number)');
     }
 
-    let app = await this.gupshupAppRepo.findOne({ where: { shopId } });
+    // Resume an unfinished onboarding if one exists; otherwise add a number
+    let app = await this.gupshupAppRepo.findOne({
+      where: { shopId, wabaStatus: 'pending' },
+    });
 
     if (!app) {
       const sanitizedAppName = `${shop.slug.replace(/[^a-zA-Z0-9]/g, '')}-${Date.now().toString().slice(-4)}`;

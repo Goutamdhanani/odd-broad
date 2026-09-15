@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, MinLength, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsBoolean, MinLength, MaxLength } from 'class-validator';
 
 export class CreateBroadcastDto {
   @IsString()
@@ -31,4 +31,20 @@ export class CreateBroadcastDto {
   @IsOptional()
   @IsString()
   audienceTag?: string;
+
+  /**
+   * Optional gupshup_app_id to pin the sending number (spec §2.4).
+   * Omitted = the health-aware router picks the best live number.
+   */
+  @IsOptional()
+  @IsString()
+  gupshupAppId?: string;
+
+  /**
+   * Explicit confirmation required to send on a RED/flagged pinned number
+   * (spec §2.3 — warning-and-confirm before Meta penalizes the number).
+   */
+  @IsOptional()
+  @IsBoolean()
+  confirmUnhealthyNumber?: boolean;
 }

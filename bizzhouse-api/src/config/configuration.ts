@@ -25,7 +25,6 @@ export default () => ({
     baseUrl: process.env.GUPSHUP_BASE_URL || 'https://partner.gupshup.io',
     email: process.env.GUPSHUP_EMAIL || '',
     clientSecret: process.env.GUPSHUP_CLIENT_SECRET || '',
-    mockMode: process.env.GUPSHUP_MOCK_MODE === 'true',
     // Public base URL of THIS api — used as the Gupshup v3 callback target
     // (must be reachable from the internet in production, e.g. https://api.bizzhouse.com)
     callbackBaseUrl: process.env.PUBLIC_API_BASE_URL || process.env.API_URL || 'http://localhost:3001',

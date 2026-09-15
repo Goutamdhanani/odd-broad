@@ -4,6 +4,24 @@
 
 ---
 
+## ☁️ Deploy the frontend to Vercel
+
+The Next.js app lives in **`bizzhouse-web/`**. Vercel auto-detects Next.js there:
+
+1. Import this repo on [vercel.com/new](https://vercel.com/new).
+2. Under **Build & Output Settings → Root Directory**, set `bizzhouse-web` (Vercel will prompt for this on monorepos and show "Next.js" detected).
+3. Add the environment variable:
+
+   | Variable | Value |
+   |---|---|
+   | `NEXT_PUBLIC_API_URL` | `https://your-api-host.com/api` (the URL where `bizzhouse-api` runs) |
+
+4. Deploy — `bizzhouse-web/vercel.json` pins the framework so detection never misses.
+
+> The API (`bizzhouse-api`) is a long-running NestJS server (Postgres + Redis + websockets) — host it on Render/Railway/Fly/a VPS, not Vercel.
+
+---
+
 ## 🚀 Quick Start Guide
 
 ### Prerequisites

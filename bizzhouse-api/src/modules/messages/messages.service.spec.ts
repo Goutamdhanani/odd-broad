@@ -9,6 +9,7 @@ describe('MessagesService', () => {
   let mockGupshupAppRepo: any;
   let mockTemplateRepo: any;
   let mockGupshupService: any;
+  let mockNumberHealthService: any;
   let mockWalletService: any;
   let mockPricingService: any;
 
@@ -40,6 +41,17 @@ describe('MessagesService', () => {
       sendMessage: vi.fn(),
     };
 
+    mockNumberHealthService = {
+      // Routing stub: resolves the app the test queued in mockGupshupAppRepo
+      pickSendingNumber: vi.fn(async () => {
+        const app = await mockGupshupAppRepo.findOne();
+        if (!app) {
+          throw new Error('No active WhatsApp number found. Complete onboarding first.');
+        }
+        return app;
+      }),
+    };
+
     mockWalletService = {
       debitForMessage: vi.fn(),
       refundForMessage: vi.fn(),
@@ -55,6 +67,7 @@ describe('MessagesService', () => {
       mockGupshupAppRepo,
       mockTemplateRepo,
       mockGupshupService,
+      mockNumberHealthService,
       mockWalletService,
       mockPricingService,
     );

@@ -5,6 +5,7 @@ import { Repository, LessThan } from 'typeorm';
 import { Shop } from '../shops/entities/shop.entity';
 import { GupshupApp } from '../gupshup/entities/gupshup-app.entity';
 import { GupshupService } from '../gupshup/gupshup.service';
+import { NumberHealthService } from '../gupshup/number-health.service';
 import { AlertService } from '../../shared/alert.service';
 import { TemplatesService } from '../templates/templates.service';
 
@@ -19,6 +20,7 @@ export class CronTasksService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(GupshupApp)
     private readonly gupshupAppRepo: Repository<GupshupApp>,
     private readonly gupshupService: GupshupService,
+    private readonly numberHealthService: NumberHealthService,
     private readonly templatesService: TemplatesService,
     private readonly alertService: AlertService,
     private readonly config: ConfigService,
@@ -41,40 +43,42 @@ export class CronTasksService implements OnModuleInit, OnModuleDestroy {
     await this.checkUpstreamGupshupWallet();
     await this.checkShopLowBalances();
     await this.syncTemplateStatuses();
+    await this.pollNumberRatings();
     await this.reconcileWalletLedgers();
   }
 
   /**
-   * Template status reconciliation: poll the provider for every LIVE app
-   * and update local rows whose status webhook was missed. Mock mode
-   * returns no remote templates, so this is a no-op locally.
+   * Template sync (spec §2.2): per shop, pull the real template list from
+   * Gupshup — updates statuses of known rows AND imports templates that
+   * only exist upstream. Replaces the old status-only reconciliation.
    */
   async syncTemplateStatuses() {
-    const liveApps = await this.gupshupAppRepo.find({
-      where: { wabaStatus: 'live' },
-    });
-    if (liveApps.length === 0) return;
-
-    // Mock apps never exist upstream — skip them by app id prefix
-    const realApps = liveApps.filter((a) => !a.gupshupAppId.startsWith('mock-'));
-    if (realApps.length === 0) return;
-
-    for (const app of realApps) {
+    const shops = await this.shopRepo.find({ where: { status: 'active' } });
+    for (const shop of shops) {
       try {
-        const updated = await this.templatesService.syncFromProvider(
-          app.gupshupAppId,
-          app.shopId,
-        );
-        if (updated > 0) {
+        const { updated, imported } = await this.templatesService.syncFromProvider(shop.id);
+        if (updated > 0 || imported > 0) {
           this.logger.log(
-            `[TEMPLATE SYNC] App ${app.gupshupAppId}: ${updated} template(s) reconciled from provider`,
+            `[TEMPLATE SYNC] Shop ${shop.id}: ${updated} row(s) reconciled, ${imported} imported from provider`,
           );
         }
       } catch (err: any) {
-        this.logger.warn(
-          `Template sync failed for app ${app.gupshupAppId}: ${err?.message}`,
-        );
+        this.logger.warn(`Template sync failed for shop ${shop.id}: ${err?.message}`);
       }
+    }
+  }
+
+  /**
+   * Number health feed (spec §2.3): poll Gupshup ratings on a schedule —
+   * the API is rate-limited (10 req/min) and the data moves ~daily, so
+   * this is deliberately NOT per-message. Caches quality + tier on each
+   * live app row; the health service computes lights from these.
+   */
+  async pollNumberRatings() {
+    try {
+      await this.numberHealthService.pollRatings();
+    } catch (err: any) {
+      this.logger.warn(`Ratings poll failed: ${err?.message}`);
     }
   }
 

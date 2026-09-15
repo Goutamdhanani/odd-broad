@@ -10,31 +10,65 @@ import {
   GupshupCreateTemplateResponse,
   GupshupSubscriptionResponse,
   GupshupTemplateButton,
+  GupshupCarouselCard,
+  GupshupMediaUploadResponse,
+  GupshupRatingsResponse,
   GupshupRemoteTemplate,
 } from './gupshup.types';
 
+export interface CreateTemplateParams {
+  elementName: string;
+  category: string;
+  languageCode: string;
+  content: string;
+  templateType?: string;
+  exampleContent?: string;
+  headerText?: string;
+  exampleHeader?: string;
+  footerText?: string;
+  vertical?: string;
+  buttons?: GupshupTemplateButton[];
+  cards?: GupshupCarouselCard[];
+  allowTemplateCategoryChange?: boolean;
+}
+
+/**
+ * Thin, real HTTP client for the Gupshup Partner API
+ * (https://partner.gupshup.io — shapes verified against
+ * partner-docs.gupshup.io; see docs/GUPSHUP-MASTER-SPEC.md).
+ *
+ * There is NO mock mode: every method performs the real call or throws a
+ * clear configuration error. Never fake a response to make the UI look
+ * like it works.
+ */
 @Injectable()
 export class GupshupService {
   private readonly logger = new Logger(GupshupService.name);
   private readonly client: AxiosInstance;
-  private readonly mockMode: boolean;
 
   private partnerToken: string | null = null;
   private partnerTokenExpiresAt: number = 0;
   private appTokenCache = new Map<string, { token: string; expiresAt: number }>();
 
   constructor(private readonly config: ConfigService) {
-    this.mockMode = config.get<boolean>('gupshup.mockMode') ?? true;
-
     this.client = axios.create({
       baseURL: config.get<string>('gupshup.baseUrl') || 'https://partner.gupshup.io',
-      timeout: 15000,
+      timeout: 30000,
       headers: { Accept: 'application/json' },
     });
+  }
 
-    if (this.mockMode) {
-      this.logger.warn('🔶 Gupshup running in MOCK MODE');
+  /** Clear, actionable error when partner credentials are absent. */
+  private assertPartnerCredentials(): { email: string; password: string } {
+    const email = this.config.get<string>('gupshup.email');
+    const password = this.config.get<string>('gupshup.clientSecret');
+    if (!email || !password) {
+      throw new Error(
+        'GUPSHUP_EMAIL / GUPSHUP_CLIENT_SECRET are not set — cannot call the Gupshup Partner API. ' +
+          'Set them in the environment (see .env.example); this build has no mock mode by design.',
+      );
     }
+    return { email, password };
   }
 
   async getPartnerToken(): Promise<string> {
@@ -45,15 +79,14 @@ export class GupshupService {
   }
 
   private async refreshPartnerToken(): Promise<string> {
-    if (this.mockMode) {
-      this.partnerToken = 'mock-partner-token-' + Date.now();
-      this.partnerTokenExpiresAt = Date.now() + 23 * 60 * 60 * 1000;
-      return this.partnerToken;
-    }
+    // Official: POST /partner/account/login with email + password
+    // (form-urlencoded). Env keeps the GUPSHUP_CLIENT_SECRET name; the
+    // wire field is `password`.
+    const { email, password } = this.assertPartnerCredentials();
 
     const params = new URLSearchParams();
-    params.append('email', this.config.get<string>('gupshup.email') || '');
-    params.append('secret', this.config.get<string>('gupshup.clientSecret') || '');
+    params.append('email', email);
+    params.append('password', password);
 
     const { data } = await this.retryRequest(() =>
       this.client.post<GupshupLoginResponse>(
@@ -62,9 +95,12 @@ export class GupshupService {
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       ),
     );
+    if (!data?.token) {
+      throw new Error(`Gupshup partner login failed: ${JSON.stringify(data).slice(0, 300)}`);
+    }
 
     this.partnerToken = data.token;
-    this.partnerTokenExpiresAt = Date.now() + 23 * 60 * 60 * 1000;
+    this.partnerTokenExpiresAt = Date.now() + 11 * 60 * 60 * 1000; // JWT valid ~12-24h; refresh early
     this.logger.log('Partner token refreshed successfully');
     return this.partnerToken;
   }
@@ -75,37 +111,33 @@ export class GupshupService {
       return cached.token;
     }
 
-    if (this.mockMode) {
-      const token = `mock-app-token-${appId}-${Date.now()}`;
-      this.appTokenCache.set(appId, {
-        token,
-        expiresAt: Date.now() + 23 * 60 * 60 * 1000,
-      });
-      return token;
-    }
-
     const { data } = await this.retryRequest(async () => {
       const partnerToken = await this.getPartnerToken();
       return this.client.get<GupshupAppTokenResponse>(
         `/partner/app/${appId}/token`,
-        { headers: { token: partnerToken } },
+        { headers: { Authorization: partnerToken } },
       );
     });
+    if (!data?.token) {
+      throw new Error(`Could not fetch app token for ${appId}: ${JSON.stringify(data).slice(0, 300)}`);
+    }
 
     this.appTokenCache.set(appId, {
       token: data.token,
-      expiresAt: Date.now() + 23 * 60 * 60 * 1000,
+      expiresAt: Date.now() + 11 * 60 * 60 * 1000,
     });
     return data.token;
   }
 
-  async createApp(name: string): Promise<GupshupCreateAppResponse> {
-    if (this.mockMode) {
-      const mockId = `mock-app-${Date.now()}`;
-      this.logger.log(`[MOCK] Created app: ${mockId}`);
-      return { appId: mockId, status: 'success' };
-    }
+  /** Headers app-token endpoints accept. Gupshup docs show both forms
+   *  (`Authorization:` on most pages, `token:` in some OpenAPI blocks) —
+   *  send both so either server-side check passes. */
+  private async appAuthHeaders(appId: string) {
+    const appToken = await this.getAppToken(appId);
+    return { Authorization: appToken, token: appToken };
+  }
 
+  async createApp(name: string): Promise<GupshupCreateAppResponse> {
     const params = new URLSearchParams();
     params.append('name', name);
     params.append('templateMessaging', 'true');
@@ -115,42 +147,36 @@ export class GupshupService {
       const partnerToken = await this.getPartnerToken();
       return this.client.post<GupshupCreateAppResponse>('/partner/app', params, {
         headers: {
-          token: partnerToken,
+          Authorization: partnerToken,
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       });
     });
-
+    if (!data?.appId) {
+      throw new Error(`Gupshup app creation failed: ${JSON.stringify(data).slice(0, 300)}`);
+    }
     this.logger.log(`Created Gupshup App: ${data.appId}`);
     return data;
   }
 
   async getEmbedSignupLink(appId: string, userName: string): Promise<GupshupEmbedLinkResponse> {
-    if (this.mockMode) {
-      return {
-        status: 'success',
-        link: `https://mock-embed-signup.gupshup.io/${appId}?user=${userName}`,
-      };
-    }
-
     const { data } = await this.retryRequest(async () => {
       const partnerToken = await this.getPartnerToken();
       return this.client.get<GupshupEmbedLinkResponse>(
         `/partner/app/${appId}/onboarding/embed/link`,
         {
           params: { regenerate: false, user: userName, lang: 'en' },
-          headers: { token: partnerToken },
+          headers: { Authorization: partnerToken },
         },
       );
     });
+    if (!data?.link) {
+      throw new Error(`Embed signup link missing in response: ${JSON.stringify(data).slice(0, 300)}`);
+    }
     return data;
   }
 
   async markForMigration(appId: string, migrationStatus = 'META_EMBED_MIGRATION'): Promise<any> {
-    if (this.mockMode) {
-      return { status: 'success', message: 'Mock migration marked' };
-    }
-
     const params = new URLSearchParams();
     params.append('migrationStatus', migrationStatus);
 
@@ -158,7 +184,7 @@ export class GupshupService {
       const partnerToken = await this.getPartnerToken();
       return this.client.post(`/partner/app/${appId}/onboarding/phoneMigration`, params, {
         headers: {
-          token: partnerToken,
+          Authorization: partnerToken,
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       });
@@ -166,83 +192,115 @@ export class GupshupService {
     return data;
   }
 
+  /**
+   * Send any message through the v3 passthrough endpoint. The body mirrors
+   * Meta's Cloud API shape exactly and is sent as JSON
+   * (Content-Type: application/json, Authorization: app token).
+   *
+   * `payload` is the type-specific object, e.g. for type "text":
+   *   { body: "hello" }  →  { ..., "type": "text", "text": { "body": "hello" } }
+   * for type "template" it is the full Meta `template` object
+   * (name/language/components, incl. the carousel component).
+   */
   async sendMessage(
     appId: string,
     to: string,
     type: string,
     payload: Record<string, any>,
   ): Promise<GupshupSendMessageResponse> {
-    if (this.mockMode) {
-      const mockId = `mock-msg-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`;
-      this.logger.log(`[MOCK] Sent ${type} message to ${to}: ${mockId}`);
-      return {
-        messages: [{ id: mockId }],
-        messaging_product: 'whatsapp',
-        contacts: [{ input: to, wa_id: to }],
-      };
+    if (!to || !type || !payload) {
+      throw new Error('sendMessage requires appId, to, type and a payload object');
     }
 
-    const params = new URLSearchParams();
-    params.append('messaging_product', 'whatsapp');
-    params.append('recipient_type', 'individual');
-    params.append('to', to);
-    params.append('type', type);
-
-    if (type === 'text') {
-      params.append('text', JSON.stringify(payload));
-    } else if (type === 'template') {
-      params.append('template', JSON.stringify(payload));
-    } else {
-      params.append(type, JSON.stringify(payload));
-    }
+    const body = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type,
+      [type]: payload,
+    };
 
     const { data } = await this.retryRequest(async () => {
-      const appToken = await this.getAppToken(appId);
+      const headers = await this.appAuthHeaders(appId);
       return this.client.post<GupshupSendMessageResponse>(
         `/partner/app/${appId}/v3/message`,
-        params,
-        {
-          headers: {
-            Authorization: appToken,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-        },
+        body,
+        { headers: { ...headers, 'Content-Type': 'application/json' } },
       );
     });
     return data;
   }
 
   async getHealth(appId: string): Promise<any> {
-    if (this.mockMode) return { status: 'healthy', mock: true };
-    const partnerToken = await this.getPartnerToken();
-    const { data } = await this.client.get(`/partner/app/${appId}/health`, {
-      headers: { token: partnerToken },
+    const { data } = await this.retryRequest(async () => {
+      const headers = await this.appAuthHeaders(appId);
+      return this.client.get(`/partner/app/${appId}/health`, { headers });
     });
     return data;
   }
 
   async getWalletBalance(): Promise<any> {
-    if (this.mockMode) return { balance: 99.5, currency: 'USD', mock: true };
-    const partnerToken = await this.getPartnerToken();
-    const { data } = await this.client.get('/partner/account/wallet-balance', {
-      headers: { token: partnerToken },
-    });
-    return data;
-  }
-
-  async getRatings(appId: string): Promise<any> {
-    if (this.mockMode) return { quality: 'GREEN', mock: true };
-    const partnerToken = await this.getPartnerToken();
-    const { data } = await this.client.get(`/partner/app/${appId}/ratings`, {
-      headers: { token: partnerToken },
+    const { data } = await this.retryRequest(async () => {
+      const partnerToken = await this.getPartnerToken();
+      return this.client.get('/partner/account/wallet-balance', {
+        headers: { Authorization: partnerToken },
+      });
     });
     return data;
   }
 
   /**
+   * Real quality rating + messaging tier for a number. App-token
+   * authenticated. "no event update available" is a normal response —
+   * it just means nothing changed; callers keep their cached values.
+   * Rate-limited to 10 req/min upstream — poll on a schedule, never
+   * per-message.
+   */
+  async getRatings(appId: string): Promise<GupshupRatingsResponse> {
+    const { data } = await this.retryRequest(async () => {
+      const headers = await this.appAuthHeaders(appId);
+      return this.client.get<GupshupRatingsResponse>(`/partner/app/${appId}/ratings`, {
+        headers,
+      });
+    });
+    return data;
+  }
+
+  /**
+   * Upload media and get a real `mediaId` — mandatory before any
+   * image/video template or carousel card can be created.
+   * POST /partner/app/{appId}/media (multipart), 100MB max.
+   */
+  async uploadMedia(
+    appId: string,
+    fileType: string,
+    file: Buffer | Uint8Array | ReadableStream | Blob,
+    filename = 'upload',
+  ): Promise<GupshupMediaUploadResponse> {
+    if (!fileType || !file) {
+      throw new Error('uploadMedia requires fileType (e.g. image/jpeg) and file content');
+    }
+    const form = new FormData();
+    form.append('file_type', fileType);
+    form.append('file', file as any, filename);
+
+    const { data } = await this.retryRequest(async () => {
+      const headers = await this.appAuthHeaders(appId);
+      return this.client.post<GupshupMediaUploadResponse>(
+        `/partner/app/${appId}/media`,
+        form,
+        { headers: { ...headers }, timeout: 120000 },
+      );
+    });
+    if (!data?.mediaId) {
+      throw new Error(`Media upload failed: ${JSON.stringify(data).slice(0, 300)}`);
+    }
+    return data;
+  }
+
+  /**
    * Register the v3 callback subscription for an app — MANDATORY to receive
-   * inbound messages and status events in Meta format (Gupshup docs:
-   * POST /partner/app/{appId}/subscription, auth = app token).
+   * inbound messages and status events in Meta format.
    *
    * modes=ALL forwards inbound messages + sent/delivered/read/deleted
    * receipts. The optional shared secret is delivered back to us as an
@@ -251,11 +309,6 @@ export class GupshupService {
   async setSubscription(appId: string, callbackUrl: string): Promise<GupshupSubscriptionResponse> {
     const tag = `bizzhouse-${appId.slice(0, 12)}`;
     const webhookSecret = this.config.get<string>('gupshup.webhookSecret');
-
-    if (this.mockMode) {
-      this.logger.log(`[MOCK] Subscription set for ${appId} → ${callbackUrl}`);
-      return { status: 'success', subscription: { id: 'mock-sub', active: true, url: callbackUrl, mode: 2047, version: 3, tag } };
-    }
 
     const params = new URLSearchParams();
     params.append('modes', 'ALL');
@@ -267,13 +320,13 @@ export class GupshupService {
     }
 
     const { data } = await this.retryRequest(async () => {
-      const appToken = await this.getAppToken(appId);
+      const headers = await this.appAuthHeaders(appId);
       return this.client.post<GupshupSubscriptionResponse>(
         `/partner/app/${appId}/subscription`,
         params,
         {
           headers: {
-            Authorization: appToken,
+            ...headers,
             'Content-Type': 'application/x-www-form-urlencoded',
           },
         },
@@ -286,11 +339,10 @@ export class GupshupService {
 
   /** Idempotency check before setSubscription — avoids duplicate subscriptions. */
   async getSubscriptions(appId: string): Promise<GupshupSubscriptionResponse> {
-    if (this.mockMode) return { status: 'success', subscription: undefined };
     const { data } = await this.retryRequest(async () => {
-      const appToken = await this.getAppToken(appId);
+      const headers = await this.appAuthHeaders(appId);
       return this.client.get<GupshupSubscriptionResponse>(`/partner/app/${appId}/subscription`, {
-        headers: { Authorization: appToken },
+        headers,
       });
     });
     return data;
@@ -311,32 +363,37 @@ export class GupshupService {
     }
   }
 
+  /**
+   * Create a template — TEXT, IMAGE, VIDEO, DOCUMENT or CAROUSEL.
+   * For CAROUSEL pass templateType='CAROUSEL', cards (2-10, each with a
+   * real mediaId from uploadMedia) and a vertical; Gupshup requires
+   * `example` and `vertical` for carousel submissions.
+   */
   async createTemplate(
     appId: string,
-    data: {
-      elementName: string;
-      category: string;
-      languageCode: string;
-      content: string;
-      exampleContent?: string;
-      headerText?: string;
-      exampleHeader?: string;
-      footerText?: string;
-      buttons?: GupshupTemplateButton[];
-      allowTemplateCategoryChange?: boolean;
-    },
+    data: CreateTemplateParams,
   ): Promise<GupshupCreateTemplateResponse> {
-    if (this.mockMode) {
-      const mockTplId = `mock-tpl-${Date.now()}`;
-      this.logger.log(`[MOCK] Created template ${data.elementName} (${data.category}) for app ${appId}`);
-      return {
-        status: 'success',
-        templateId: mockTplId,
-        elementName: data.elementName,
-      };
+    const templateType = data.templateType || 'TEXT';
+
+    if (templateType === 'CAROUSEL') {
+      if (!data.cards?.length) {
+        throw new Error('CAROUSEL templates require a cards array (2-10 cards)');
+      }
+      if (data.cards.length < 2 || data.cards.length > 10) {
+        throw new Error(`Carousel needs 2-10 cards, got ${data.cards.length} (Meta limit)`);
+      }
+      for (const [i, card] of data.cards.entries()) {
+        if (!card.mediaId && !card.mediaUrl) {
+          throw new Error(
+            `Card ${i + 1} is missing media — upload the image first via uploadMedia() to get a mediaId`,
+          );
+        }
+        if (!card.body?.trim()) {
+          throw new Error(`Card ${i + 1} needs body text`);
+        }
+      }
     }
 
-    // Real API: POST /partner/app/{appId}/templates (form-urlencoded).
     // Meta requires `example` (body with variables filled) whenever the
     // content carries {{N}} placeholders, otherwise submission is rejected.
     const hasVariables = /\{\{\d+\}\}/.test(data.content);
@@ -349,8 +406,13 @@ export class GupshupService {
     params.append('languageCode', data.languageCode || 'en_US');
     params.append('category', data.category);
     params.append('content', data.content);
-    params.append('templateType', 'TEXT');
+    params.append('templateType', templateType);
     params.append('appId', appId);
+    if (templateType === 'CAROUSEL') {
+      // vertical + example are required for carousel submissions
+      params.append('vertical', data.vertical || 'marketing');
+      params.append('enableSample', 'true');
+    }
     if (exampleContent) params.append('example', exampleContent);
     if (data.headerText) params.append('header', data.headerText);
     if (data.exampleHeader) params.append('exampleHeader', data.exampleHeader);
@@ -358,19 +420,22 @@ export class GupshupService {
     if (data.buttons?.length) {
       params.append('buttons', JSON.stringify(data.buttons));
     }
+    if (data.cards?.length) {
+      params.append('cards', JSON.stringify(data.cards));
+    }
     params.append(
       'allowTemplateCategoryChange',
       String(data.allowTemplateCategoryChange ?? false),
     );
 
     const { data: res } = await this.retryRequest(async () => {
-      const appToken = await this.getAppToken(appId);
+      const headers = await this.appAuthHeaders(appId);
       return this.client.post<GupshupCreateTemplateResponse>(
         `/partner/app/${appId}/templates`,
         params,
         {
           headers: {
-            Authorization: appToken,
+            ...headers,
             'Content-Type': 'application/x-www-form-urlencoded',
           },
         },
@@ -380,17 +445,51 @@ export class GupshupService {
   }
 
   /**
-   * Fetch all remote templates for an app (GET /partner/app/{appId}/templates).
-   * Used by the periodic status-sync job to reconcile local rows when a
-   * template-status webhook was missed.
+   * Edit a template still in an editable state.
+   * NOTE: carousel template media cannot be edited after creation
+   * (Gupshup/Meta rule) — pass identical card media.
+   */
+  async editTemplate(
+    appId: string,
+    templateId: string,
+    data: CreateTemplateParams,
+  ): Promise<GupshupCreateTemplateResponse> {
+    const params = new URLSearchParams();
+    params.append('elementName', data.elementName);
+    params.append('languageCode', data.languageCode || 'en_US');
+    params.append('category', data.category);
+    params.append('content', data.content);
+    params.append('templateType', data.templateType || 'TEXT');
+    if (data.exampleContent) params.append('example', data.exampleContent);
+    if (data.headerText) params.append('header', data.headerText);
+    if (data.footerText) params.append('footer', data.footerText);
+    if (data.buttons?.length) params.append('buttons', JSON.stringify(data.buttons));
+    if (data.vertical) params.append('vertical', data.vertical);
+
+    const { data: res } = await this.retryRequest(async () => {
+      const headers = await this.appAuthHeaders(appId);
+      return this.client.put<GupshupCreateTemplateResponse>(
+        `/partner/app/${appId}/templates/${templateId}`,
+        params,
+        {
+          headers: {
+            ...headers,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+        },
+      );
+    });
+    return res;
+  }
+
+  /**
+   * Fetch all remote templates for an app (GET /partner/app/{appId}/templates)
+   * — including ones created outside this UI. Used by sync.
    */
   async getTemplates(appId: string): Promise<GupshupRemoteTemplate[]> {
-    if (this.mockMode) return [];
     const { data } = await this.retryRequest(async () => {
-      const appToken = await this.getAppToken(appId);
-      return this.client.get(`/partner/app/${appId}/templates`, {
-        headers: { Authorization: appToken },
-      });
+      const headers = await this.appAuthHeaders(appId);
+      return this.client.get(`/partner/app/${appId}/templates`, { headers });
     });
     const list = data?.templates || data?.data || [];
     return Array.isArray(list) ? list : [];
@@ -414,7 +513,13 @@ export class GupshupService {
         }
 
         if (attempt === retries || (status && status >= 400 && status < 500 && status !== 429 && status !== 401)) {
-          this.logger.error(`Gupshup request failed after ${attempt} attempts: ${err.message}`);
+          const detail = err?.response?.data
+            ? typeof err.response.data === 'string'
+              ? err.response.data.slice(0, 300)
+              : JSON.stringify(err.response.data).slice(0, 300)
+            : err?.message;
+          this.logger.error(`Gupshup request failed (HTTP ${status ?? 'n/a'}): ${detail}`);
+          err.message = `${err.message} — Gupshup said: ${detail}`;
           throw err;
         }
         const wait = delayMs * Math.pow(2, attempt - 1);

@@ -15,10 +15,22 @@ export interface GupshupEmbedLinkResponse {
   link: string;
 }
 
+/**
+ * v3 passthrough send response. The official shape is
+ * `{messages:[{id}], messaging_product, contacts}`; some Gupshup send
+ * endpoints return `{status, messageId}` instead — accept both and read
+ * the id through `extractMessageId()`.
+ */
 export interface GupshupSendMessageResponse {
-  messages: Array<{ id: string }>;
-  messaging_product: string;
-  contacts: Array<{ input: string; wa_id: string }>;
+  messages?: Array<{ id: string }>;
+  messaging_product?: string;
+  contacts?: Array<{ input: string; wa_id: string }>;
+  status?: string;
+  messageId?: string;
+}
+
+export function extractMessageId(res: GupshupSendMessageResponse): string | undefined {
+  return res?.messages?.[0]?.id || res?.messageId || undefined;
 }
 
 export interface GupshupHealthResponse {
@@ -38,6 +50,7 @@ export interface GupshupAppTokenResponse {
 export interface GupshupCreateTemplateResponse {
   status: string;
   templateId?: string;
+  template?: { id?: string; elementName?: string; status?: string };
   elementName?: string;
   message?: string;
   [key: string]: any;
@@ -65,6 +78,44 @@ export interface GupshupTemplateButton {
   example?: string[];
 }
 
+/**
+ * One card of a CAROUSEL template, exactly as Gupshup expects it in the
+ * `cards` form field of POST /partner/app/{appId}/templates.
+ */
+export interface GupshupCarouselCard {
+  headerType: 'IMAGE' | 'VIDEO';
+  /** From POST /partner/app/{appId}/media — mandatory unless mediaUrl is set */
+  mediaId?: string;
+  /** Public HTTPS URL alternative to mediaId */
+  mediaUrl?: string;
+  body: string;
+  sampleText?: string;
+  /** Carousel cards allow URL and QUICK_REPLY buttons only (max 1 per card) */
+  buttons?: Array<{
+    type: 'URL' | 'QUICK_REPLY';
+    text: string;
+    url?: string;
+    example?: string[];
+  }>;
+}
+
+export interface GupshupMediaUploadResponse {
+  mediaId: string;
+  status: string;
+}
+
+/** GET /partner/app/{appId}/ratings */
+export interface GupshupRatingsResponse {
+  oldLimit?: string;
+  currentLimit?: string;
+  event?: string;
+  eventTime?: number;
+  phoneQuality?: 'GREEN' | 'YELLOW' | 'RED' | string;
+  /** Normal "nothing changed since last check" response */
+  message?: string;
+  status?: string;
+}
+
 /** A template row as returned by GET /partner/app/{appId}/templates */
 export interface GupshupRemoteTemplate {
   id?: string;
@@ -76,7 +127,15 @@ export interface GupshupRemoteTemplate {
   language?: string;
   status?: string;
   templateType?: string;
-  containerMeta?: { rejection_reason?: string; [key: string]: any };
+  /** Template body text with {{N}} placeholders */
+  data?: string;
+  quality?: string;
+  vertical?: string;
+  /** Stringified JSON — carries `cards` for CAROUSEL templates */
+  containerMeta?: string | Record<string, any>;
+  createdOn?: number;
+  modifiedOn?: number;
+  wabaId?: string;
   rejection_reason?: string;
   [key: string]: any;
 }
@@ -94,7 +153,10 @@ export interface GupshupInboundMessage {
           from: string;
           id: string;
           text?: { body: string };
-          image?: { id: string; mime_type: string; sha256: string };
+          image?: { id: string; mime_type: string; sha256: string; link?: string; url?: string };
+          video?: { id: string; mime_type: string; sha256: string; link?: string; url?: string };
+          audio?: { id: string; mime_type: string; sha256: string; link?: string; url?: string };
+          document?: { id: string; mime_type: string; sha256: string; link?: string; url?: string; filename?: string };
           timestamp: string;
           type: string;
           [key: string]: any;

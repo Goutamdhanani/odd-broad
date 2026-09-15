@@ -18,6 +18,7 @@ import { CreateRateCardsTable1788746773476 } from './migrations/1788746773476-Cr
 import { BroadcastsAndOptInTracking1789000000000 } from './migrations/1789000000000-BroadcastsAndOptInTracking';
 import { AutomationRules1789100000000 } from './migrations/1789100000000-AutomationRules';
 import { TeamAndAssignment1789200000000 } from './migrations/1789200000000-TeamAndAssignment';
+import { CarouselTemplatesAndNumberHealth1789300000000 } from './migrations/1789300000000-CarouselTemplatesAndNumberHealth';
 
 /**
  * Standalone TypeORM DataSource for the CLI (migrations + schema sync checks).
@@ -53,6 +54,7 @@ export default new DataSource({
     BroadcastsAndOptInTracking1789000000000,
     AutomationRules1789100000000,
     TeamAndAssignment1789200000000,
+    CarouselTemplatesAndNumberHealth1789300000000,
   ],
   migrationsTableName: 'migrations',
 });

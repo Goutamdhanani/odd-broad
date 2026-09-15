@@ -35,6 +35,21 @@ export class GupshupApp {
   @Column({ type: 'text', name: 'waba_status', default: 'pending' })
   wabaStatus: 'pending' | 'live' | 'rejected';
 
+  /**
+   * Meta quality rating from GET /partner/app/{appId}/ratings —
+   * GREEN / YELLOW / RED. Updated by the scheduled ratings poll only
+   * (the API is rate-limited and moves ~daily); never per-message.
+   */
+  @Column({ type: 'text', name: 'quality_rating', nullable: true })
+  qualityRating: 'GREEN' | 'YELLOW' | 'RED' | null;
+
+  /** Messaging tier from the same ratings call, e.g. TIER_1K / TIER_10K. */
+  @Column({ type: 'text', name: 'messaging_tier', nullable: true })
+  messagingTier: string | null;
+
+  @Column({ type: 'timestamptz', name: 'last_ratings_check', nullable: true })
+  lastRatingsCheck: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

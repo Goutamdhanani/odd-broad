@@ -7,6 +7,8 @@ describe('BroadcastsService', () => {
   let mockBroadcastRepo: any;
   let mockContactRepo: any;
   let mockTemplateRepo: any;
+  let mockGupshupAppRepo: any;
+  let mockNumberHealthService: any;
   let mockWalletService: any;
   let mockPricingService: any;
   let mockQueue: any;
@@ -32,6 +34,15 @@ describe('BroadcastsService', () => {
     mockTemplateRepo = {
       findOne: vi.fn(),
     };
+    mockGupshupAppRepo = {
+      findOne: vi.fn().mockResolvedValue(null),
+    };
+    mockNumberHealthService = {
+      getHealth: vi.fn().mockResolvedValue({
+        light: 'green',
+        reasons: [],
+      }),
+    };
     mockWalletService = {
       getBalance: vi.fn().mockResolvedValue(100000),
     };
@@ -46,6 +57,8 @@ describe('BroadcastsService', () => {
       mockBroadcastRepo,
       mockContactRepo,
       mockTemplateRepo,
+      mockGupshupAppRepo,
+      mockNumberHealthService,
       mockWalletService,
       mockPricingService,
       mockQueue,

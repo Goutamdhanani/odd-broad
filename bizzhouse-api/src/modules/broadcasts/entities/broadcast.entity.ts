@@ -42,8 +42,23 @@ export class Broadcast {
   @Column({ type: 'jsonb', name: 'template_components', nullable: true, default: '[]' })
   templateComponents: any[] | null;
 
+  /**
+   * Positional {{N}} values for the template. Non-carousel: baked into
+   * template_components at creation. Carousel: applied per send across
+   * the body and card bodies in order (spec §3.4).
+   */
+  @Column({ type: 'jsonb', name: 'template_variables', nullable: true, default: '[]' })
+  templateVariables: string[] | null;
+
   @Column({ type: 'text', name: 'audience_tag', nullable: true })
   audienceTag: string | null;
+
+  /**
+   * The gupshup_app_id of the specific sending number, when the shop pinned
+   * one. Null = the health-aware router picks per send (spec §2.4).
+   */
+  @Column({ type: 'text', name: 'gupshup_app_id', nullable: true })
+  gupshupAppId: string | null;
 
   @Column({ type: 'text', default: BroadcastStatus.QUEUED })
   status: BroadcastStatus;

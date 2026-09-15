@@ -5,20 +5,53 @@
 
 ## Current Milestone
 
-One-go directive batch DONE: media re-hosting (MinIO + secure access),
-rate-card admin UI, team management + conversation assignment, analytics
-time-range view, frontend vitest with normalization regression tests.
-Fixed: "can't login" was a stale .next served under a running next start.
-Fixed: React object-child crash ({text,type}) via normalization layer
-(`lib/normalize.ts` + `MessageContent.tsx`); template sends now store a
-render-friendly `bodyText`; provider jargon removed from shop UI.
+**Gupshup real-integration batch DONE (see `docs/GUPSHUP-MASTER-SPEC.md` — the
+authoritative API reference, verified against partner-docs.gupshup.io):**
+
+- **Mock mode REMOVED.** `GupshupService` makes only real HTTP calls; missing
+  `GUPSHUP_EMAIL`/`GUPSHUP_CLIENT_SECRET` throws a clear config error. Login
+  uses the official `email`+`password` form fields (env var name unchanged).
+- **v3 send is JSON** (`application/json`, app token in `Authorization`) with
+  Meta Cloud API shapes; response ids read from `messages[0].id` OR
+  `messageId` (both official variants).
+- **Carousel ("collage") templates end to end**: `POST /templates/media`
+  multipart upload → real Gupshup `mediaId` (mandatory first step, UI
+  enforces upload-before-create), `templateType=CAROUSEL` + `cards[]`
+  (2–10 cards, headerType/mediaId/body/sampleText/buttons), per-app
+  submission to every live number, send path builds Meta's
+  `{type:'carousel', cards:[{components:[header/body/button]}]}` block from
+  the stored card structure. Template entity + migration:
+  `template_type`, `cards`, `vertical`, `header_text`, `footer_text`,
+  `example`, `gupshup_template_ids` (per-app id map).
+- **Template sync (spec §2.2)**: `POST /templates/sync` + 15-min cron pulls
+  GET /partner/app/{appId}/templates for every live app — updates statuses
+  AND **imports** templates created outside the UI (parses containerMeta for
+  carousel cards). Templates UI has a "Sync from Gupshup" button.
+- **Number health (spec §2.3)**: `NumberHealthService` combines Meta quality
+  (GREEN/YELLOW/RED from GET /partner/app/{appId}/ratings, app-token auth,
+  polled on a schedule only — cached on `gupshup_apps`), 24h failure rate
+  and usage vs tier ceiling (`messages.gupshup_app_id` column added).
+  Traffic light via `GET /gupshup/numbers`; ratings refresh endpoint has a
+  10-min cooldown (API is 10 req/min).
+- **Multi-number routing (spec §2.4)**: shops can connect many numbers
+  (onboard resumes pending, else creates a new app). Router picks the
+  healthy number furthest from its tier ceiling; broadcasts pin a number or
+  route automatically; mid-campaign RED → failover between batches or stop;
+  pinned RED requires explicit `confirmUnhealthyNumber` (UI checkbox).
+- **Templates UI**: text OR carousel builder (per-card image upload with
+  mediaId badge, card text ≤160, optional URL/quick-reply button per card,
+  2–10 cards, add/remove), footer field, optional real buttons — the old
+  hardcoded `['Visit Store','Stop Promotions']` are gone. Broadcast wizard
+  shows sending-number picker with health lights + confirm gate for RED.
+- Tests: **61 backend + 15 frontend green**; both apps typecheck and build.
 
 ## Completed
 
 - **Foundation (Groups A–B)**: NestJS 12 + TypeORM + Postgres/Redis/MinIO via
   docker-compose; JWT auth (super_admin / shop_owner) with rate limiting,
   password policy, production fail-fast config; tenant context interceptor;
-  TypeORM migrations (5 applied, `migrationsRun: true`).
+  TypeORM migrations (8 applied, `migrationsRun: true` — register every new
+  migration in BOTH `app.module.ts` and `database/data-source.ts`).
 - **Wallet ledger (Group C)**: atomic debit (`UPDATE ... WHERE balance >= cost
   RETURNING`), idempotent refunds (`FOR UPDATE` + reference check), append-only
   `wallet_transactions` (debits stored NEGATIVE — sign bug fixed), admin
@@ -35,13 +68,15 @@ render-friendly `bodyText`; provider jargon removed from shop UI.
   (auto `example` from `{{N}}`, structured buttons, header/footer), status
   webhook handling + 15-min provider sync job, rejection reasons surfaced.
 - **Messaging (Groups H–I)**: send pipeline = validate → normalize E.164 →
-  session-window check → opt-in enforcement → category pricing → atomic debit →
-  provider send → persist provider message id → refund on failure. Inbound
-  webhook: IP allowlist + shared-secret verification, queue-based processing,
-  contact resolution, 24h window tracking, text/button/interactive/reaction/
-  media/location handling. Socket.IO live updates.
+  route to number → session-window check → opt-in enforcement → category
+  pricing → atomic debit → provider send → persist provider message id →
+  refund on failure. Inbound webhook: IP allowlist + shared-secret
+  verification, queue-based processing, contact resolution, 24h window
+  tracking, text/button/interactive/reaction/media/location handling.
+  Socket.IO live updates.
 - **Broadcasts**: queued BullMQ dispatch, opted-in audience, wallet pre-check,
-  per-message debit, live websocket progress, template variable filling.
+  per-message debit, live websocket progress, template variable filling,
+  health-aware number routing with mid-campaign failover.
 - **Inbox**: normalized message rendering (`lib/normalize.ts` +
   `MessageContent.tsx` — objects never reach JSX), template send with variable
   inputs when session closed, quick replies, optimistic sends with status ticks.
@@ -50,10 +85,7 @@ render-friendly `bodyText`; provider jargon removed from shop UI.
 - **UI**: Apple-style light design system (globals.css), all pages swept.
 - **Testing**: 61 backend + 15 frontend tests green (frontend covers the
   normalization layer — the {text,type} object-child crash class, phone
-  normalization, Meta component building). Live smoke passed for: media
-  re-hosting to MinIO + tenant-scoped access (owner 200 / cross-tenant 403 /
-  anonymous 401), team invite + agent login, conversation assignment +
-  assigned-to-me filter, admin rate-card updates, analytics buckets.
+  normalization, Meta component building).
 - **NOTE**: never run `next build` while `next start` is serving — it corrupts
   the served page (caused the "can't login" report; chunks 404'd). Restart
   after every build.

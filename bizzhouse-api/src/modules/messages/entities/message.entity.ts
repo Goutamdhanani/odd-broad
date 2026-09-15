@@ -37,6 +37,11 @@ export class Message {
   @Column({ type: 'text', name: 'gupshup_message_id', nullable: true })
   gupshupMessageId: string;
 
+  /** gupshup_app_id of the number that sent this — powers per-number
+   *  health stats (24h volume vs tier ceiling, failure rate). */
+  @Column({ type: 'text', name: 'gupshup_app_id', nullable: true })
+  gupshupAppId: string | null;
+
   @Column({ type: 'text', default: 'queued' })
   status: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
 

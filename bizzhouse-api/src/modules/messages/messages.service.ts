@@ -8,9 +8,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Message } from './entities/message.entity';
 import { Contact } from '../contacts/entities/contact.entity';
+import { Template, TemplateStatus, TemplateType } from '../templates/entities/template.entity';
 import { GupshupApp } from '../gupshup/entities/gupshup-app.entity';
-import { Template, TemplateStatus } from '../templates/entities/template.entity';
 import { GupshupService } from '../gupshup/gupshup.service';
+import { NumberHealthService } from '../gupshup/number-health.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PricingService } from '../../shared/pricing.service';
 import { normalizePhone, countTemplateVariables, buildBodyComponents, fillTemplateBody } from '../../shared/phone.util';
@@ -30,26 +31,33 @@ export class MessagesService {
     @InjectRepository(Template)
     private readonly templateRepo: Repository<Template>,
     private readonly gupshupService: GupshupService,
+    private readonly numberHealthService: NumberHealthService,
     private readonly walletService: WalletService,
     private readonly pricingService: PricingService,
   ) {}
 
+  /**
+   * Send one message. The sending number is either the shop's pinned
+   * gupshupAppId or the health-aware router's pick (spec §2.4). Template
+   * payloads are built in Meta's exact Cloud API shape, including the
+   * carousel component for CAROUSEL templates (spec §3.4).
+   */
   async sendMessage(shopId: string, dto: SendMessageDto) {
-    const gupshupApp = await this.gupshupAppRepo.findOne({
-      where: { shopId, wabaStatus: 'live' },
-    });
-    if (!gupshupApp) {
-      throw new BadRequestException(
-        'No active WhatsApp number found. Complete onboarding first.',
-      );
-    }
-
     // Normalize to the E.164 digit form Gupshup/Meta require (91XXXXXXXXXX)
     const waId = normalizePhone(dto.contactWaId);
     if (waId.length < 10) {
       throw new BadRequestException('contactWaId must be a valid WhatsApp number');
     }
     dto.contactWaId = waId;
+
+    // Route to a sending number (spec §2.4) — honors a pinned app, else
+    // picks the healthy number furthest from its daily tier ceiling.
+    let gupshupApp: GupshupApp;
+    try {
+      gupshupApp = await this.numberHealthService.pickSendingNumber(shopId, dto.gupshupAppId);
+    } catch (err: any) {
+      throw new BadRequestException(err?.message || 'No active WhatsApp number found');
+    }
 
     let contact = await this.contactRepo.findOne({
       where: { shopId, waId },
@@ -105,7 +113,17 @@ export class MessagesService {
         // Build body components from positional values when the caller
         // supplied them instead of raw components — Meta rejects template
         // sends whose {{N}} placeholders are not all filled.
-        if (!dto.templateComponents?.length && dto.templateValues) {
+        if (template.templateType === TemplateType.CAROUSEL) {
+          // Carousel: body + per-card components (spec §3.4). Media is
+          // always sent by mediaId — cards were uploaded at creation.
+          dto.templateComponents = this.buildCarouselComponents(
+            template,
+            dto.templateValues || [],
+          );
+        } else if (
+          !dto.templateComponents?.length &&
+          dto.templateValues
+        ) {
           const needed = countTemplateVariables(template.body);
           if (dto.templateValues.length !== needed) {
             throw new BadRequestException(
@@ -143,6 +161,7 @@ export class MessagesService {
       status: 'queued' as const,
       costPaise: costPaise,
       payload: storedPayload,
+      gupshupAppId: gupshupApp.gupshupAppId,
     });
     const savedMessage = await this.messageRepo.save(message);
 
@@ -165,13 +184,13 @@ export class MessagesService {
         gupshupApp.gupshupAppId,
         dto.contactWaId,
         dto.type,
-        this.buildPayload(dto),
+        providerPayload,
       );
 
-      const gupshupMessageId = response.messages?.[0]?.id;
+      const gupshupMessageId = response.messages?.[0]?.id || (response as any).messageId;
       await this.messageRepo.update(savedMessage.id, {
         status: 'sent' as const,
-        gupshupMessageId,
+        gupshupMessageId: gupshupMessageId || null,
       });
 
       return {
@@ -180,6 +199,7 @@ export class MessagesService {
         status: 'sent',
         costPaise,
         contactId: contact.id,
+        sentVia: gupshupApp.gupshupAppId,
       };
     } catch (err: any) {
       if (costPaise > 0) {
@@ -189,6 +209,69 @@ export class MessagesService {
       this.logger.error(`Send failed for shop ${shopId}: ${err?.message}`);
       throw new BadRequestException(`Failed to send message: ${err?.message}`);
     }
+  }
+
+  /**
+   * Build the Meta carousel component block from the template's stored
+   * card structure (spec §3.4 — "build this by reading the card structure
+   * back from your synced template row, not by hand-guessing").
+   * Card bodies may carry {{N}} placeholders that continue the main body's
+   * numbering; positional dto.templateValues fill them in order.
+   */
+  private buildCarouselComponents(template: Template, values: string[]) {
+    const components: any[] = [];
+
+    // Main body parameters ({{1}}..{{n}} of the template body)
+    const bodyVarCount = countTemplateVariables(template.body);
+    if (bodyVarCount > 0) {
+      components.push(buildBodyComponents(values.slice(0, bodyVarCount))[0]);
+    }
+
+    // Per-card components in card order
+    const cards = template.cards || [];
+    const cardComponents = cards.map((card, cardIndex) => {
+      const cardComps: any[] = [];
+
+      if (card.mediaId) {
+        cardComps.push({
+          type: 'header',
+          parameters: [
+            card.headerType === 'VIDEO'
+              ? { type: 'video', video: { id: card.mediaId } }
+              : { type: 'image', image: { id: card.mediaId } },
+          ],
+        });
+      }
+
+      const cardVars = countTemplateVariables(card.body || '');
+      if (cardVars > 0) {
+        const start = bodyVarCount + cards.slice(0, cardIndex).reduce(
+          (sum, c) => sum + countTemplateVariables(c.body || ''), 0,
+        );
+        cardComps.push({
+          type: 'body',
+          parameters: values.slice(start, start + cardVars).map((v) => ({ type: 'text', text: String(v) })),
+        });
+      }
+
+      const urlButton = (card.buttons || []).find((b) => b.type === 'URL' && /{{1}}/.test(b.url || ''));
+      if (urlButton) {
+        const start = bodyVarCount + cards.slice(0, cardIndex).reduce(
+          (sum, c) => sum + countTemplateVariables(c.body || ''), 0,
+        ) + cardVars;
+        cardComps.push({
+          type: 'button',
+          sub_type: 'url',
+          index: '0',
+          parameters: [{ type: 'text', text: values[start] || '' }],
+        });
+      }
+
+      return { components: cardComps };
+    });
+
+    components.push({ type: 'carousel', cards: cardComponents });
+    return components;
   }
 
   async getConversations(

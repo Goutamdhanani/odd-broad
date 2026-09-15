@@ -68,4 +68,10 @@ export class SendMessageDto {
   @IsOptional()
   @IsString()
   contactName?: string;
+
+  // Optional gupshup_app_id to pin the sending number (spec §2.4).
+  // Omitted = the health-aware router picks the best live number.
+  @IsOptional()
+  @IsString()
+  gupshupAppId?: string;
 }

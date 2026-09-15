@@ -10,7 +10,9 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Broadcast, BroadcastStatus } from './entities/broadcast.entity';
 import { Contact } from '../contacts/entities/contact.entity';
-import { Template, TemplateStatus } from '../templates/entities/template.entity';
+import { Template, TemplateStatus, TemplateType } from '../templates/entities/template.entity';
+import { GupshupApp } from '../gupshup/entities/gupshup-app.entity';
+import { NumberHealthService } from '../gupshup/number-health.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PricingService } from '../../shared/pricing.service';
 import { countTemplateVariables, buildBodyComponents } from '../../shared/phone.util';
@@ -27,6 +29,9 @@ export class BroadcastsService {
     private readonly contactRepo: Repository<Contact>,
     @InjectRepository(Template)
     private readonly templateRepo: Repository<Template>,
+    @InjectRepository(GupshupApp)
+    private readonly gupshupAppRepo: Repository<GupshupApp>,
+    private readonly numberHealthService: NumberHealthService,
     private readonly walletService: WalletService,
     private readonly pricingService: PricingService,
     @InjectQueue('broadcast-dispatch')
@@ -77,9 +82,18 @@ export class BroadcastsService {
     // Resolve final Meta components up front: explicit components win,
     // otherwise positional bodyVariables are built against the template's
     // {{N}} placeholders (Meta rejects sends with unfilled variables).
+    // Carousel templates are the exception: components are rebuilt per
+    // send from the template's card structure (spec §3.4).
     let components = dto.templateComponents || [];
     const variablesInBody = countTemplateVariables(template.body);
-    if (components.length === 0 && dto.bodyVariables?.length) {
+    if (template.templateType === TemplateType.CAROUSEL) {
+      if (variablesInBody > 0 && (dto.bodyVariables?.length ?? 0) !== variablesInBody) {
+        throw new BadRequestException(
+          `Carousel template '${template.elementName}' has ${variablesInBody} variable(s) across its body/cards; provide a value for each.`,
+        );
+      }
+      components = [];
+    } else if (components.length === 0 && dto.bodyVariables?.length) {
       if (dto.bodyVariables.length !== variablesInBody) {
         throw new BadRequestException(
           `Template '${template.elementName}' has ${variablesInBody} variable(s); ${dto.bodyVariables.length} value(s) supplied.`,
@@ -92,6 +106,25 @@ export class BroadcastsService {
       );
     }
 
+    // Sending-number gate (spec §2.3/2.4): a pinned RED number needs an
+    // explicit confirmUnhealthyNumber flag; unpinned goes through the
+    // health-aware router, which never picks a RED number.
+    if (dto.gupshupAppId) {
+      const pinned = await this.gupshupAppRepo.findOne({
+        where: { gupshupAppId: dto.gupshupAppId, shopId },
+      });
+      if (!pinned) {
+        throw new BadRequestException('Pinned sending number not found for this shop');
+      }
+      const health = await this.numberHealthService.getHealth(pinned);
+      if (health.light === 'red' && !dto.confirmUnhealthyNumber) {
+        throw new BadRequestException(
+          `This number is currently unhealthy — ${health.reasons.join('; ')}. ` +
+            `Sending now risks Meta restricting it. Retry with confirmUnhealthyNumber=true to send anyway.`,
+        );
+      }
+    }
+
     const broadcast = await this.broadcastRepo.save(
       this.broadcastRepo.create({
         shopId,
@@ -99,7 +132,9 @@ export class BroadcastsService {
         templateName: template.elementName,
         templateLanguage: dto.templateLanguage || template.language || 'en',
         templateComponents: components,
+        templateVariables: dto.bodyVariables || [],
         audienceTag: dto.audienceTag || null,
+        gupshupAppId: dto.gupshupAppId || null,
         status: BroadcastStatus.QUEUED,
         totalRecipients: recipientCount,
         costPaise: 0,
@@ -189,7 +224,9 @@ export class BroadcastsService {
       name: b.name,
       templateName: b.templateName,
       templateLanguage: b.templateLanguage,
+      templateVariables: b.templateVariables || [],
       audienceTag: b.audienceTag,
+      gupshupAppId: b.gupshupAppId,
       status: b.status,
       totalRecipients: b.totalRecipients,
       sentCount: b.sentCount,

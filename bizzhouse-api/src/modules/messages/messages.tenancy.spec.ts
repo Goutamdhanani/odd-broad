@@ -14,6 +14,7 @@ describe('MessagesService — tenant scoping', () => {
   let mockGupshupAppRepo: any;
   let mockTemplateRepo: any;
   let mockGupshupService: any;
+  let mockNumberHealthService: any;
   let mockWalletService: any;
   let mockPricingService: any;
 
@@ -51,6 +52,16 @@ describe('MessagesService — tenant scoping', () => {
     };
     mockTemplateRepo = { findOne: vi.fn().mockResolvedValue(null) };
     mockGupshupService = { sendMessage: vi.fn() };
+    mockNumberHealthService = {
+      // Routing stub: scoped the same way the DB mock is — shop B finds no live number
+      pickSendingNumber: vi.fn(async (shopId: string) => {
+        const app = await mockGupshupAppRepo.findOne({ where: { shopId } });
+        if (!app) {
+          throw new Error('No active WhatsApp number found. Complete onboarding first.');
+        }
+        return app;
+      }),
+    };
     mockWalletService = {
       debitForMessage: vi.fn(async () => ({ success: true, newBalance: 1000 })),
       refundForMessage: vi.fn(),
@@ -63,6 +74,7 @@ describe('MessagesService — tenant scoping', () => {
       mockGupshupAppRepo,
       mockTemplateRepo,
       mockGupshupService,
+      mockNumberHealthService,
       mockWalletService,
       mockPricingService,
     );

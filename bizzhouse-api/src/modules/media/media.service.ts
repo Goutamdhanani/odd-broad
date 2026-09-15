@@ -67,7 +67,7 @@ export class MediaService implements OnModuleInit {
     messageId: string,
     updatePayload: (patch: Record<string, unknown>) => Promise<void>,
     mediaUrl?: string,
-    filename?: string,
+    _filename?: string,
   ): Promise<PersistResult> {
     if (!mediaUrl || !/^https?:\/\//i.test(mediaUrl)) {
       return { stored: false, reason: 'no-downloadable-url' };

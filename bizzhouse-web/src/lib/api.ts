@@ -115,6 +115,14 @@ export const contactsApi = {
 };
 
 // ─── Templates ─────────────────────────────────────────
+export interface CarouselCardInput {
+  headerType: 'IMAGE' | 'VIDEO';
+  mediaId: string;
+  body: string;
+  sampleText?: string;
+  buttons?: Array<{ type: 'URL' | 'QUICK_REPLY'; text: string; url?: string }>;
+}
+
 export const templatesApi = {
   list: () => api.get('/templates'),
   get: (id: string) => api.get(`/templates/${id}`),
@@ -123,8 +131,34 @@ export const templatesApi = {
     category: string;
     body: string;
     language?: string;
-    buttons?: string[];
+    templateType?: 'TEXT' | 'CAROUSEL';
+    cards?: CarouselCardInput[];
+    vertical?: string;
+    headerText?: string;
+    footerText?: string;
+    example?: string;
+    buttons?: Array<string | { type?: string; text: string; url?: string }>;
   }) => api.post('/templates', data),
+  /** Pull the real template list from Gupshup (statuses + imports) */
+  sync: () => api.post('/templates/sync'),
+  /** Edit a not-yet-approved text template */
+  update: (
+    id: string,
+    data: { body?: string; headerText?: string; footerText?: string; example?: string },
+  ) => api.put(`/templates/${id}`, data),
+  /**
+   * Upload an image and get a REAL Gupshup mediaId — mandatory before
+   * creating a carousel card (spec §3.3.5).
+   */
+  uploadMedia: async (file: File): Promise<{ mediaId: string; mediaIds: Record<string, string> }> => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('fileType', file.type || 'image/jpeg');
+    const { data } = await api.post('/templates/media', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
 };
 
 // ─── Broadcasts ────────────────────────────────────────
@@ -139,6 +173,10 @@ export const broadcastsApi = {
     templateComponents?: unknown[];
     bodyVariables?: string[];
     audienceTag?: string;
+    /** Pin the sending number; omit to let the health-aware router pick */
+    gupshupAppId?: string;
+    /** Required confirmation to broadcast on a RED/flagged pinned number */
+    confirmUnhealthyNumber?: boolean;
   }) => api.post('/broadcasts', data),
   estimate: (tag?: string, templateName?: string) =>
     api.get('/broadcasts/estimate', { params: { tag, templateName } }),
@@ -181,9 +219,32 @@ export const automationApi = {
 };
 
 // ─── Gupshup Onboarding ────────────────────────────────
+export interface NumberHealth {
+  light: 'green' | 'yellow' | 'red';
+  qualityRating: 'GREEN' | 'YELLOW' | 'RED' | null;
+  messagingTier: string | null;
+  dailyCeiling: number;
+  sentLast24h: number;
+  usageRatio: number;
+  failureRateLast24h: number;
+  reasons: string[];
+}
+
+export interface ConnectedNumber {
+  id: string;
+  gupshupAppId: string;
+  phoneNumber: string | null;
+  wabaStatus: 'pending' | 'live' | 'rejected';
+  onboardingType: 'new_number' | 'existing_number';
+  health: NumberHealth;
+}
+
 export const gupshupApi = {
   getStatus: () => api.get('/gupshup/status'),
   getQuality: () => api.get('/gupshup/quality'),
+  /** Every connected number + its composite health traffic light (spec §2.3) */
+  getNumbers: () => api.get<{ numbers: ConnectedNumber[] }>('/gupshup/numbers'),
+  refreshRatings: () => api.post('/gupshup/numbers/ratings/refresh'),
   startOnboarding: (data: {
     onboardingType: 'new_number' | 'existing_number';
     phoneNumber?: string;
