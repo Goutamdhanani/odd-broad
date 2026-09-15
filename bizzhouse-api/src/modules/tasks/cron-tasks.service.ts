@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Shop } from '../shops/entities/shop.entity';
 import { GupshupApp } from '../gupshup/entities/gupshup-app.entity';
+import { WebhookEvent } from '../webhooks/entities/webhook-event.entity';
 import { GupshupService } from '../gupshup/gupshup.service';
 import { NumberHealthService } from '../gupshup/number-health.service';
 import { AlertService } from '../../shared/alert.service';
@@ -19,6 +20,8 @@ export class CronTasksService implements OnModuleInit, OnModuleDestroy {
     private readonly shopRepo: Repository<Shop>,
     @InjectRepository(GupshupApp)
     private readonly gupshupAppRepo: Repository<GupshupApp>,
+    @InjectRepository(WebhookEvent)
+    private readonly webhookEventRepo: Repository<WebhookEvent>,
     private readonly gupshupService: GupshupService,
     private readonly numberHealthService: NumberHealthService,
     private readonly templatesService: TemplatesService,
@@ -45,6 +48,37 @@ export class CronTasksService implements OnModuleInit, OnModuleDestroy {
     await this.syncTemplateStatuses();
     await this.pollNumberRatings();
     await this.reconcileWalletLedgers();
+    await this.pruneWebhookEvents();
+  }
+
+  /**
+   * Retention cleanup for the webhook audit table. Every inbound Gupshup
+   * event is stored with its raw jsonb payload; without pruning the table
+   * grows forever on an active platform. Processed events older than
+   * WEBHOOK_EVENTS_RETENTION_DAYS (default 7) are deleted — a failed/
+   * unprocessed event is NEVER removed, so the replay path stays intact.
+   */
+  async pruneWebhookEvents(): Promise<number> {
+    try {
+      const retentionDays = this.config.get<number>('webhook.eventsRetentionDays') ?? 7;
+      if (retentionDays <= 0) return 0; // 0/negative disables pruning
+
+      const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+      const result = await this.webhookEventRepo.delete({
+        processed: true,
+        receivedAt: LessThan(cutoff),
+      });
+      const removed = Number(result.affected || 0);
+      if (removed > 0) {
+        this.logger.log(
+          `[PRUNE] webhook_events: removed ${removed} processed event(s) older than ${retentionDays} day(s)`,
+        );
+      }
+      return removed;
+    } catch (err: any) {
+      this.logger.warn(`Webhook event pruning failed: ${err?.message}`);
+      return 0;
+    }
   }
 
   /**

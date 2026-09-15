@@ -51,6 +51,12 @@ export default () => ({
     ipWhitelist: process.env.WEBHOOK_IP_WHITELIST
       ? process.env.WEBHOOK_IP_WHITELIST.split(',').map((ip: string) => ip.trim())
       : [],
+    // How long processed webhook_events rows (raw payload audit copies) are
+    // kept before the cron prunes them. Unprocessed rows are NEVER pruned.
+    eventsRetentionDays: parseInt(
+      process.env.WEBHOOK_EVENTS_RETENTION_DAYS || '7',
+      10,
+    ),
   },
 
   alerts: {

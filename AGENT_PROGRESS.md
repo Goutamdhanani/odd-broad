@@ -83,6 +83,12 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   while writing: freshness was re-evaluated AFTER the save, making every
   fresh fetch report 'cache'. 5 new tests — 113/113 API green; columns
   verified live in Postgres after the server restart.
+- **Pass #11 — webhook_events retention pruning**: raw payload audit rows
+  grew unbounded. New cron step deletes only PROCESSED events older than
+  WEBHOOK_EVENTS_RETENTION_DAYS (default 7; 0 disables) — failed/un-
+  processed events are never removed so the replay path stays intact.
+  Config + .env.example documented; 5 new tests — 118/118 API green;
+  DELETE query with correct cutoff observed executing live on boot.
 
 ## Recent completed batches (pre-automation)
 
