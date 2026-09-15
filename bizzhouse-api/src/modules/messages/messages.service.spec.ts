@@ -337,6 +337,7 @@ describe('MessagesService', () => {
         status: 'sent',
         shopId: 'shop-1',
         costPaise: 150,
+        payload: { body: 'hi' },
       });
 
       await service.updateMessageStatus('gs-id-1', 'failed');
@@ -345,6 +346,47 @@ describe('MessagesService', () => {
         expect.objectContaining({ status: 'failed' }),
       );
       expect(mockWalletService.refundForMessage).toHaveBeenCalledWith('shop-1', 150, 'msg-1');
+    });
+
+    it('should persist the webhook failure reason (code + title) on failed messages', async () => {
+      mockMessageRepo.findOne.mockResolvedValue({
+        id: 'msg-1',
+        status: 'sent',
+        shopId: 'shop-1',
+        costPaise: 0,
+        payload: { body: 'hi' },
+      });
+
+      await service.updateMessageStatus('gs-id-1', 'failed', {
+        code: 131047,
+        title: 'Re-engagement message required',
+      });
+
+      expect(mockMessageRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'failed',
+          payload: {
+            body: 'hi',
+            failureReason: { code: 131047, title: 'Re-engagement message required' },
+          },
+        }),
+      );
+    });
+
+    it('should keep the payload untouched when a failure carries no error detail', async () => {
+      mockMessageRepo.findOne.mockResolvedValue({
+        id: 'msg-1',
+        status: 'sent',
+        shopId: 'shop-1',
+        costPaise: 0,
+        payload: { body: 'hi' },
+      });
+
+      await service.updateMessageStatus('gs-id-1', 'failed');
+
+      expect(mockMessageRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'failed', payload: { body: 'hi' } }),
+      );
     });
 
     it('should be idempotent and not re-refund if message is already failed', async () => {

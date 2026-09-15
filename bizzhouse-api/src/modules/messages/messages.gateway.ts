@@ -69,7 +69,14 @@ export class MessagesGateway
     this.server.to(`shop:${shopId}`).emit('message:new', message);
   }
 
-  emitMessageStatus(shopId: string, update: { messageId: string; status: string }) {
+  emitMessageStatus(
+    shopId: string,
+    update: {
+      messageId: string;
+      status: string;
+      failureReason?: { code?: number; title?: string };
+    },
+  ) {
     this.server.to(`shop:${shopId}`).emit('message:status', update);
   }
 

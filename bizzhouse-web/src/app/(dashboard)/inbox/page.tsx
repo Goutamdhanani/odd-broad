@@ -51,6 +51,7 @@ interface MessageItem {
     caption?: string;
     mediaUrl?: string;
     filename?: string;
+    failureReason?: { code?: number | null; title?: string } | null;
   } | null;
   createdAt: string;
   gupshupMessageId?: string;
@@ -220,6 +221,7 @@ export default function InboxPage() {
       messageId: string;
       status: string;
       gupshupMessageId?: string;
+      failureReason?: { code?: number; title?: string } | null;
     }) => {
       setMessages((prev) =>
         prev.map((m) => {
@@ -227,7 +229,14 @@ export default function InboxPage() {
             m.id === data.messageId ||
             (data.gupshupMessageId && m.gupshupMessageId === data.gupshupMessageId)
           ) {
-            return { ...m, status: data.status };
+            return {
+              ...m,
+              status: data.status,
+              payload: {
+                ...m.payload,
+                failureReason: data.failureReason ?? m.payload?.failureReason ?? null,
+              },
+            };
           }
           return m;
         })
@@ -810,6 +819,17 @@ export default function InboxPage() {
                         )}
                       >
                         <MessageContent content={content} />
+
+                        {msg.status === 'failed' && msg.payload?.failureReason?.title && (
+                          <div className="mt-1.5 p-2 rounded-lg bg-red-500/10 border border-red-400/30 text-[11px] text-red-100 leading-snug">
+                            <span className="font-semibold">
+                              {msg.payload.failureReason.code
+                                ? `Error ${msg.payload.failureReason.code}: `
+                                : ''}
+                            </span>
+                            {msg.payload.failureReason.title}
+                          </div>
+                        )}
 
                         <div
                           className={cn(

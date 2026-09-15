@@ -430,9 +430,15 @@ export class MessagesService {
     return this.messageRepo.save(message);
   }
 
+  /**
+   * Apply a provider status update. `failure` carries the webhook's
+   * errors[0] (Meta error code + human title) so the shop sees WHY a
+   * message failed, not just that it did.
+   */
   async updateMessageStatus(
     gupshupMessageId: string,
     status: string,
+    failure?: { code?: number; title?: string },
   ): Promise<Message | null> {
     const message = await this.messageRepo.findOne({
       where: { gupshupMessageId },
@@ -453,6 +459,15 @@ export class MessagesService {
 
     if (status === 'failed') {
       message.status = 'failed';
+      if (failure?.code || failure?.title) {
+        message.payload = {
+          ...message.payload,
+          failureReason: {
+            code: failure.code ?? null,
+            title: failure.title ?? '',
+          },
+        };
+      }
       await this.messageRepo.save(message);
 
       if (message.costPaise && Number(message.costPaise) > 0) {

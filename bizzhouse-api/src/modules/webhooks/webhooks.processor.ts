@@ -244,13 +244,26 @@ export class WebhooksProcessor extends WorkerHost {
     const status = statusUpdate.status;
     if (!messageId || !status) return;
 
+    // Meta attaches the failure cause on failed statuses (spec §3.5) —
+    // e.g. 131047 re-engagement required, 131026 undeliverable.
+    const firstError = Array.isArray(statusUpdate.errors) ? statusUpdate.errors[0] : undefined;
+    const failure =
+      status === 'failed' && firstError
+        ? { code: Number(firstError.code) || undefined, title: String(firstError.title || '') }
+        : undefined;
+
     try {
-      const updatedMessage = await this.messagesService.updateMessageStatus(messageId, status);
+      const updatedMessage = await this.messagesService.updateMessageStatus(
+        messageId,
+        status,
+        failure,
+      );
 
       if (updatedMessage) {
         this.messagesGateway.emitMessageStatus(shopId, {
           messageId: updatedMessage.id,
           status,
+          failureReason: failure,
         });
       }
     } catch (err: any) {

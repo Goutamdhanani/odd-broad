@@ -45,6 +45,12 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   rows expand to a live delivery summary (queued/sent/delivered/read/
   failed chips + read rate + progress). 4 new tests — 99/99 API green,
   web 20/20, both builds pass; route + 404 verified live.
+- **Pass #6 — Failure reason surfacing (spec §3.5 errors[])**:
+  webhook processor extracts `statuses[].errors[0]` ({code,title} — e.g.
+  Meta 131047 re-engagement); `updateMessageStatus` persists it as
+  `payload.failureReason`; socket `message:status` now carries it;
+  inbox failed bubbles render "Error 131047: …" inline instead of a bare
+  "Failed". 2 new tests — 101/101 API green, web 20/20.
 
 ## Recent completed batches (pre-automation)
 
