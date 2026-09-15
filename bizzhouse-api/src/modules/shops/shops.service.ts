@@ -61,7 +61,12 @@ export class ShopsService {
           [shopId],
         ),
         this.shopRepo.query(
-          `SELECT waba_status, phone_number FROM gupshup_apps WHERE shop_id = $1 LIMIT 1`,
+          `SELECT
+             COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE waba_status = 'live')::int AS live,
+             MIN(phone_number) FILTER (WHERE waba_status = 'live') AS live_phone_number,
+             COUNT(*) FILTER (WHERE quality_rating = 'RED')::int AS red_rated
+           FROM gupshup_apps WHERE shop_id = $1`,
           [shopId],
         ),
       ]);
@@ -85,8 +90,12 @@ export class ShopsService {
         walletBalancePaise: Number(shop.wallet_balance_paise || 0),
       },
       whatsapp: {
-        connected: app.waba_status === 'live',
-        phoneNumber: app.phone_number || null,
+        // Multi-number (spec §2.4): connected when ANY number is live
+        connected: Number(app.live || 0) > 0,
+        liveCount: Number(app.live || 0),
+        totalCount: Number(app.total || 0),
+        redRatedCount: Number(app.red_rated || 0),
+        phoneNumber: app.live_phone_number || null,
       },
       messages: {
         outboundLast7d: Number(messages.outbound_7d || 0),

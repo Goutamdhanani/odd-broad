@@ -19,6 +19,10 @@ real only when they exercise the same domain pipeline as live mode.
 | Delivery status ticks | ✅ realtime | ✅ status webhook | ✅ messages.status | ✅ | smoke | ✅ | real creds |
 | Refunds on failure | — (ledger view) | ✅ idempotent | ✅ refund rows | — | ✅ | ✅ | — |
 | Templates CRUD/submit | ✅ + reasons | ✅ real payload | ✅ templates | ✅ /templates API | ✅ | ✅ | real creds |
+| Carousel ("collage") templates | ✅ per-card upload builder | ✅ media upload → mediaId → CAROUSEL create/send | ✅ template_type/cards cols | ✅ /media + /templates (verified docs) | ✅ | ✅ | real creds |
+| Template sync (import external) | ✅ "Sync" button | ✅ updates + imports upstream rows | ✅ | ✅ GET /templates | — | ✅ | real creds |
+| Number health score | ✅ traffic lights (settings/wizard) | ✅ Meta rating + failure rate + tier usage | ✅ quality_rating/tier cols | ✅ /ratings (scheduled poll) | — | ✅ | real creds |
+| Multi-number + routing | ✅ picker + health lights | ✅ health-aware router, mid-campaign failover, RED confirm gate | ✅ gupshup_app_id on messages/broadcasts | — | ✅ | ✅ | — |
 | Template status sync | — (auto) | ✅ 15-min poll | ✅ | ✅ | — | ✅ | real creds |
 | Contacts CRUD + search | ✅ | ✅ | ✅ contacts | — | — | ✅ | — |
 | CSV import + opt-in confirm | ✅ | ✅ bulk, dedup | ✅ opted_in_at | — | — | ✅ | — |
@@ -30,7 +34,7 @@ real only when they exercise the same domain pipeline as live mode.
 | Automation rules | ⬜ | ⬜ execution planned | ⬜ | ✅ sends via pipeline | ⬜ | ⬜ | — |
 | Team / agents | ✅ invite + list page | ✅ owner-only CRUD | ✅ users | — | ✅ live-verified | ✅ | — |
 | Analytics (shop, time-range) | ✅ overview chart | ✅ daily buckets API | ✅ | — | ✅ live-verified | ✅ | — |
-| Media re-hosting (S3) | ⬜ | ⬜ URL passthrough now | ⬜ | — | — | ⬜ | — |
+| Media re-hosting (S3) | ✅ via secure /media route | ✅ re-host on inbound | ✅ MinIO keys | — | ✅ live-verified | ✅ | — |
 | Admin shops/credit/stats | ✅ | ✅ | ✅ | — | — | ✅ | — |
 | Alerts (low balance/drift) | — (webhook out) | ✅ dedup + thresholds | — | — | — | ✅ | ALERT_WEBHOOK_URL |
 | Health checks | — | ✅ DB+Redis probes | — | — | — | ✅ | — |

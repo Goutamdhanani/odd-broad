@@ -27,7 +27,13 @@ interface AnalyticsPoint {
 
 interface ShopStats {
   shop: { businessName: string; status: string; walletBalancePaise: number };
-  whatsapp: { connected: boolean; phoneNumber: string | null };
+  whatsapp: {
+    connected: boolean;
+    phoneNumber: string | null;
+    liveCount?: number;
+    totalCount?: number;
+    redRatedCount?: number;
+  };
   messages: {
     outboundLast7d: number;
     inboundLast7d: number;
@@ -131,7 +137,7 @@ export default function OverviewPage() {
         </button>
       </div>
 
-      {/* WhatsApp connection strip */}
+      {/* WhatsApp connection strip — aggregates ALL the shop's numbers */}
       <div
         className={cn(
           'p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3',
@@ -149,12 +155,16 @@ export default function OverviewPage() {
           <div>
             <div className="text-[13px] font-semibold text-[#1d1d1f]">
               {stats.whatsapp.connected
-                ? `WhatsApp connected — ${stats.whatsapp.phoneNumber}`
+                ? (stats.whatsapp.liveCount ?? 1) > 1
+                  ? `WhatsApp connected — ${stats.whatsapp.liveCount} live numbers`
+                  : `WhatsApp connected — ${stats.whatsapp.phoneNumber}`
                 : 'WhatsApp not connected yet'}
             </div>
             <div className="text-[11px] text-[#6e6e73]">
               {stats.whatsapp.connected
-                ? 'Customers can reach you on the official API.'
+                ? stats.whatsapp.redRatedCount
+                  ? `${stats.whatsapp.redRatedCount} number(s) rated RED by Meta — review before broadcasting`
+                  : 'Campaigns route across your healthy numbers automatically.'
                 : 'Connect a number to start receiving messages.'}
             </div>
           </div>
