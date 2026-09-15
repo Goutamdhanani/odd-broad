@@ -73,6 +73,16 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   4 new tests caught+fixed a missing name-equality check — 108/108
   API green; verified live (created:2/updated:1/skipped:1 against the
   demo shop, FK guard held, test rows cleaned after).
+- **Pass #10 — Embedded Signup link caching (spec §3.2 quota)**: Gupshup
+  caps each app at 5 new links / 40 regenerations and says cache + only
+  refresh when expired — the onboard endpoint was refetching on every
+  click. Now `gupshup_apps.embed_link` + `embed_link_expires_at` (
+  migration 1789500000000) store the last link with a 4-day TTL (links
+  live 5); `isEmbedLinkFresh()` (5-min safety margin) decides reuse;
+  response carries `linkSource: cache|fresh`. One bug caught & fixed
+  while writing: freshness was re-evaluated AFTER the save, making every
+  fresh fetch report 'cache'. 5 new tests — 113/113 API green; columns
+  verified live in Postgres after the server restart.
 
 ## Recent completed batches (pre-automation)
 

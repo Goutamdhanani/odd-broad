@@ -50,6 +50,17 @@ export class GupshupApp {
   @Column({ type: 'timestamptz', name: 'last_ratings_check', nullable: true })
   lastRatingsCheck: Date | null;
 
+  /**
+   * Spec §3.2: the last-issued Embedded Signup link + expiry. Cached so a
+   * reload / repeat click during onboarding doesn't burn the provider's
+   * 5-new-links / 40-regenerations-per-app quota.
+   */
+  @Column({ type: 'text', name: 'embed_link', nullable: true })
+  embedLink: string | null;
+
+  @Column({ type: 'timestamptz', name: 'embed_link_expires_at', nullable: true })
+  embedLinkExpiresAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

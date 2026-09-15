@@ -12,7 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { GupshupApp } from './entities/gupshup-app.entity';
-import { GupshupService } from './gupshup.service';
+import { GupshupService, isEmbedLinkFresh } from './gupshup.service';
 import { NumberHealthService } from './number-health.service';
 import { Shop } from '../shops/entities/shop.entity';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
@@ -179,16 +179,30 @@ export class GupshupController {
       this.ensureSubscription(app.gupshupAppId).catch(() => {});
     });
 
-    const embedRes = await this.gupshupService.getEmbedSignupLink(
-      app.gupshupAppId,
-      shop.businessName,
-    );
+    // Spec §3.2: the link expires in 5 days and the quota is 5 new links /
+    // 40 regenerations per app — reuse a cached live link so reloading
+    // onboarding (or a double-click on Continue) never burns it. Fetch a
+    // fresh one only when there isn't one or it's expired.
+    const cacheIsFresh = isEmbedLinkFresh(app);
+    let embedLink = app.embedLink;
+    if (!cacheIsFresh) {
+      const embedRes = await this.gupshupService.getEmbedSignupLink(
+        app.gupshupAppId,
+        shop.businessName,
+      );
+      embedLink = embedRes.link;
+      app.embedLink = embedLink;
+      // 4-day cache TTL; Gupshup links live 5
+      app.embedLinkExpiresAt = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000);
+      await this.gupshupAppRepo.save(app);
+    }
 
     return {
       appId: app.gupshupAppId,
       onboardingType: app.onboardingType,
       wabaStatus: app.wabaStatus,
-      embedSignupLink: embedRes.link,
+      embedSignupLink: embedLink,
+      linkSource: cacheIsFresh ? 'cache' : 'fresh',
     };
   }
 

@@ -33,6 +33,20 @@ export interface CreateTemplateParams {
 }
 
 /**
+ * Spec §3.2 caching rule: Gupshup embed links live 5 days and the quota is
+ * tight (5 new links / 40 regenerations per app) — reuse the cached link
+ * while it has a 5-minute safety margin left, fetch a fresh one only after.
+ */
+export function isEmbedLinkFresh(
+  app: { embedLink: string | null; embedLinkExpiresAt: Date | null },
+  now: number = Date.now(),
+): boolean {
+  if (!app.embedLink || !app.embedLinkExpiresAt) return false;
+  const marginMs = 5 * 60 * 1000;
+  return new Date(app.embedLinkExpiresAt).getTime() > now + marginMs;
+}
+
+/**
  * Thin, real HTTP client for the Gupshup Partner API
  * (https://partner.gupshup.io — shapes verified against
  * partner-docs.gupshup.io; see docs/GUPSHUP-MASTER-SPEC.md).
