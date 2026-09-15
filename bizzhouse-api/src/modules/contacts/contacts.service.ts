@@ -15,6 +15,49 @@ export class ContactsService {
     private readonly contactRepo: Repository<Contact>,
   ) {}
 
+  /**
+   * Serialize contacts to CSV. Values that start with a formula character
+   * (= + - @ tab CR) are prefixed with ' so Excel does not execute them —
+   * contact names are user-controlled text imported from arbitrary CSVs.
+   */
+  buildCsv(rows: Array<Pick<Contact, 'name' | 'waId' | 'optedIn' | 'tags'>>): string {
+    const esc = (v: string): string => {
+      let s = v ?? '';
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const header = ['name', 'wa_id', 'opted_in', 'tags'];
+    const lines = rows.map((r) =>
+      [
+        esc(r.name ?? ''),
+        esc(r.waId),
+        r.optedIn ? 'yes' : 'no',
+        esc((r.tags ?? []).join(';')),
+      ].join(','),
+    );
+    return [header.join(','), ...lines].join('\r\n');
+  }
+
+  /** Export the SAME filters the list view uses, unpaginated. */
+  async exportCsv(shopId: string, search?: string, tag?: string): Promise<string> {
+    const qb = this.contactRepo
+      .createQueryBuilder('contact')
+      .where('contact.shopId = :shopId', { shopId })
+      .orderBy('contact.name', 'ASC')
+      .addOrderBy('contact.waId', 'ASC');
+
+    if (search) {
+      qb.andWhere('(contact.name ILIKE :search OR contact.wa_id ILIKE :search)', {
+        search: `%${search}%`,
+      });
+    }
+    if (tag) {
+      qb.andWhere(':tag = ANY(contact.tags)', { tag });
+    }
+
+    return this.buildCsv(await qb.getMany());
+  }
+
   async findAll(
     shopId: string,
     page = 1,

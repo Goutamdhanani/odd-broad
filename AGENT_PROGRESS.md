@@ -5,6 +5,19 @@
 
 ## Current Milestone
 
+**Continuous-improvement automation is active** (every 30 min × 20 runs). Each run must pick
+ONE end-to-end improvement, verify, commit; append a dated bullet here so the next run
+inherits context. Running locally: Postgres 16 at C:\bizzhouse-deps (user pgsvc), Redis,
+API :3001 (`npm run start:dev` in bizzhouse-api), Web :3000 (`npm run dev` in bizzhouse-web).
+Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identifiers).
+
+- **Pass #1 — Contacts CSV export**: `GET /api/contacts/export` (streamed `text/csv`,
+  Excel-safe BOM, formula-injection escaping in `buildCsv`, honors the same search/tag
+  filters as the list view, registered before `:id`); Export button on the Contacts page
+  downloads via authenticated blob request; 4 new unit tests (68 API tests green).
+
+## Recent completed batches (pre-automation)
+
 **Gupshup real-integration batch DONE (see `docs/GUPSHUP-MASTER-SPEC.md` — the
 authoritative API reference, verified against partner-docs.gupshup.io):**
 

@@ -18,6 +18,7 @@ import {
   Upload,
   FileSpreadsheet,
   AlertTriangle,
+  Download,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -89,6 +90,7 @@ export default function ContactsPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newContact, setNewContact] = useState({ waId: '', name: '', tags: '' });
   const [adding, setAdding] = useState(false);
+  const [exporting, setExporting] = useState(false);
   // CSV import
   const [showImportModal, setShowImportModal] = useState(false);
   const [csvRows, setCsvRows] = useState<CsvRow[]>([]);
@@ -177,6 +179,29 @@ export default function ContactsPage() {
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0 self-start md:self-auto">
+            <button
+              onClick={async () => {
+                setExporting(true);
+                try {
+                  await contactsApi.exportCsv(searchQuery || undefined);
+                  toast.success('Contacts exported as CSV');
+                } catch (err) {
+                  toast.error(getErrorMessage(err, 'Export failed'));
+                } finally {
+                  setExporting(false);
+                }
+              }}
+              disabled={exporting}
+              className="bh-btn-secondary h-12 px-5 text-sm flex items-center gap-2 cursor-pointer disabled:opacity-60"
+              title="Download the current list (respects the search filter)"
+            >
+              {exporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              <span>Export CSV</span>
+            </button>
             <button
               onClick={() => { setShowImportModal(true); setCsvRows([]); setImportResult(null); setCsvOptInConfirmed(false); }}
               className="bh-btn-secondary h-12 px-5 text-sm flex items-center gap-2 cursor-pointer"

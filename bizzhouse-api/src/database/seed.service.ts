@@ -123,6 +123,7 @@ export class SeedService implements OnApplicationBootstrap {
       // 1. Create shop with ₹500 starting credit
       const shop = this.shopRepo.create({
         businessName: 'Demo Fashion Boutique',
+        slug: `demo-fashion-boutique-${Date.now().toString().slice(-6)}`,
         category: 'retail',
         status: 'active',
         walletBalancePaise: 50000, // ₹500.00

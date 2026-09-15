@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -6,10 +6,12 @@ import {
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import type { Response } from 'express';
 import { ContactsService } from './contacts.service';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator';
 import { normalizePhone } from '../../shared/phone.util';
@@ -31,6 +33,27 @@ export class ContactsController {
       throw new BadRequestException('No shop associated with this account');
     }
     return this.contactsService.findAll(shopId, page, limit, search, tag);
+  }
+
+  // Must be declared BEFORE ':id' so "export" is not matched as a param.
+  @Get('export')
+  async exportCsv(
+    @Res() res: Response,
+    @CurrentTenant('shopId') shopId: string,
+    @Query('search') search?: string,
+    @Query('tag') tag?: string,
+  ) {
+    if (!shopId) {
+      throw new BadRequestException('No shop associated with this account');
+    }
+    const csv = await this.contactsService.exportCsv(shopId, search, tag);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="bizzhouse-contacts-${Date.now()}.csv"`,
+    );
+    // BOM so Excel opens UTF-8 names correctly
+    res.send('\uFEFF' + csv);
   }
 
   @Get(':id')

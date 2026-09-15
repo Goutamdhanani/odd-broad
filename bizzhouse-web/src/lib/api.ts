@@ -140,6 +140,21 @@ export const contactsApi = {
     api.patch(`/contacts/${id}`, data),
   import: (contacts: Array<{ waId: string; name?: string; tags?: string[] }>) =>
     api.post('/contacts/import', { contacts }),
+  /** Download the current (optionally filtered) contact list as a CSV file */
+  exportCsv: async (search?: string, tag?: string) => {
+    const { data } = await api.get('/contacts/export', {
+      params: { search, tag },
+      responseType: 'blob',
+    });
+    const url = URL.createObjectURL(data as Blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bizzhouse-contacts-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };
 
 // ─── Templates ─────────────────────────────────────────
