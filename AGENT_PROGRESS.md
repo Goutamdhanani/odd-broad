@@ -51,6 +51,12 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   `payload.failureReason`; socket `message:status` now carries it;
   inbox failed bubbles render "Error 131047: …" inline instead of a bare
   "Failed". 2 new tests — 101/101 API green, web 20/20.
+- **Pass #7 — Idempotent debits (money correctness)**: `debitForMessage`
+  now guards against duplicate charges the same way refunds do — an
+  existing `wallet_transactions` debit row for (shop, messageId) short-
+  circuits to success with the current balance, so a retried send can
+  never debit the shop twice. Fixes the one asymmetric guard in the
+  ledger. 1 new test + updated mocks — 102/102 API green.
 
 ## Recent completed batches (pre-automation)
 

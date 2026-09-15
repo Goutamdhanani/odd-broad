@@ -99,7 +99,11 @@ describe('WalletService', () => {
     it('should atomically debit balance when funds are sufficient', async () => {
       mockDataSource.transaction.mockImplementation(async (cb: any) => {
         const manager = {
-          query: vi.fn().mockResolvedValue([{ wallet_balance_paise: '350' }]),
+          query: vi.fn()
+            // 1. idempotency guard: no existing debit for this message
+            .mockResolvedValueOnce([])
+            // 2. atomic UPDATE ... WHERE balance >= cost
+            .mockResolvedValueOnce([{ wallet_balance_paise: '350' }]),
           save: vi.fn().mockResolvedValue({}),
         };
         return cb(manager);
@@ -112,13 +116,41 @@ describe('WalletService', () => {
     it('should return failure if balance is insufficient (UPDATE returned 0 rows)', async () => {
       mockDataSource.transaction.mockImplementation(async (cb: any) => {
         const manager = {
-          query: vi.fn().mockResolvedValue([]),
+          query: vi.fn()
+            .mockResolvedValueOnce([]) // guard: no existing debit
+            .mockResolvedValueOnce([]), // UPDATE matched nothing
+          save: vi.fn(),
         };
         return cb(manager);
       });
 
       const result = await service.debitForMessage('shop-1', 5000, 'msg-1');
       expect(result).toEqual({ success: false, newBalance: -1 });
+    });
+
+    it('should NOT debit twice for the same message (idempotent like refunds)', async () => {
+      let capturedManager: any;
+      mockDataSource.transaction.mockImplementation(async (cb: any) => {
+        capturedManager = {
+          query: vi.fn()
+            // 1. guard finds an existing debit row for this messageId
+            .mockResolvedValueOnce([{ id: 'tx-existing' }])
+            // 2. balance read for the idempotent response
+            .mockResolvedValueOnce([{ wallet_balance_paise: '500' }]),
+          save: vi.fn(),
+        };
+        return cb(capturedManager);
+      });
+
+      const result = await service.debitForMessage('shop-1', 150, 'msg-1');
+
+      expect(result).toEqual({ success: true, newBalance: 500 });
+      // UPDATE must never have run and no second ledger row must be written
+      const updateCalls = capturedManager.query.mock.calls.filter((c: any[]) =>
+        c[0].includes('UPDATE shops'),
+      );
+      expect(updateCalls).toHaveLength(0);
+      expect(capturedManager.save).not.toHaveBeenCalled();
     });
   });
 

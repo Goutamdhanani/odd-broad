@@ -217,7 +217,9 @@ export class WalletService {
   }
 
   /**
-   * Atomic debit for message sending.
+   * Atomic debit for message sending. Idempotent per messageId: the send
+   * pipeline can retry a provider call after a timeout, and the shop must
+   * never be debited twice for one message (mirrors the refund guard).
    */
   async debitForMessage(
     shopId: string,
@@ -230,6 +232,28 @@ export class WalletService {
     }
 
     return this.dataSource.transaction(async (manager) => {
+      // Idempotency guard: an existing debit row for this message means a
+      // retry already charged the wallet — report success with the current
+      // balance instead of debiting again.
+      const existingRes = await manager.query(
+        `SELECT id FROM wallet_transactions
+         WHERE shop_id = $1 AND reference_id = $2 AND type = 'debit'`,
+        [shopId, messageId],
+      );
+      if (this.getRows(existingRes).length > 0) {
+        this.logger.warn(
+          `Idempotency guard: debit already exists for message ${messageId}, skipping duplicate debit`,
+        );
+        const balRes = await manager.query(
+          `SELECT wallet_balance_paise FROM shops WHERE id = $1`,
+          [shopId],
+        );
+        return {
+          success: true,
+          newBalance: Number(this.getFirstRow(balRes)?.wallet_balance_paise ?? 0),
+        };
+      }
+
       const result = await manager.query(
         `UPDATE shops
          SET wallet_balance_paise = wallet_balance_paise - $1
