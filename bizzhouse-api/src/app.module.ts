@@ -43,6 +43,7 @@ import { BroadcastsAndOptInTracking1789000000000 } from './database/migrations/1
 import { AutomationRules1789100000000 } from './database/migrations/1789100000000-AutomationRules';
 import { TeamAndAssignment1789200000000 } from './database/migrations/1789200000000-TeamAndAssignment';
 import { CarouselTemplatesAndNumberHealth1789300000000 } from './database/migrations/1789300000000-CarouselTemplatesAndNumberHealth';
+import { BroadcastMessageAttribution1789400000000 } from './database/migrations/1789400000000-BroadcastMessageAttribution';
 
 @Module({
   imports: [
@@ -85,6 +86,7 @@ import { CarouselTemplatesAndNumberHealth1789300000000 } from './database/migrat
           AutomationRules1789100000000,
           TeamAndAssignment1789200000000,
           CarouselTemplatesAndNumberHealth1789300000000,
+          BroadcastMessageAttribution1789400000000,
         ],
         migrationsRun: true,
         synchronize: false,

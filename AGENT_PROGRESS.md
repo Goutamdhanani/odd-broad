@@ -36,6 +36,15 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   wins, all-red + no-numbers errors), canContinueSending, and pollRatings
   (update vs "no event update available" vs never-throws-to-cron).
   96/96 API tests now green; lint clean.
+- **Pass #5 — Campaign delivery attribution (spec §2.1 summary view)**:
+  `messages.broadcast_id` (migration 1789400000000, indexed
+  broadcast+status); dispatcher stamps `broadcastId` on every campaign
+  send; `GET /api/broadcasts/:id/stats` aggregates per-message statuses
+  (delivered ⊇ read, read-rate of the at-least-delivered portion,
+  progress vs totalRecipients, tenant-scoped in SQL); broadcasts table
+  rows expand to a live delivery summary (queued/sent/delivered/read/
+  failed chips + read rate + progress). 4 new tests — 99/99 API green,
+  web 20/20, both builds pass; route + 404 verified live.
 
 ## Recent completed batches (pre-automation)
 

@@ -88,4 +88,10 @@ export class SendMessageDto {
   @IsOptional()
   @IsString()
   gupshupAppId?: string;
+
+  // Set by the broadcast dispatcher so status webhooks roll up into the
+  // campaign's live summary (spec §2.1).
+  @IsOptional()
+  @IsString()
+  broadcastId?: string;
 }

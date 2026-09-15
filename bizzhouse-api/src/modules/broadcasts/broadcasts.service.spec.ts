@@ -9,6 +9,7 @@ describe('BroadcastsService', () => {
   let mockTemplateRepo: any;
   let mockGupshupAppRepo: any;
   let mockNumberHealthService: any;
+  let mockMessageRepo: any;
   let mockWalletService: any;
   let mockPricingService: any;
   let mockQueue: any;
@@ -43,6 +44,19 @@ describe('BroadcastsService', () => {
         reasons: [],
       }),
     };
+    mockMessageRepo = {
+      rawRows: [] as Array<{ status: string; count: string }>,
+      lastQb: null as any,
+      createQueryBuilder: vi.fn(function () {
+        const qb: any = {};
+        for (const m of ['select', 'addSelect', 'where', 'andWhere', 'groupBy']) {
+          qb[m] = vi.fn().mockReturnValue(qb);
+        }
+        qb.getRawMany = vi.fn(() => Promise.resolve(mockMessageRepo.rawRows));
+        mockMessageRepo.lastQb = qb;
+        return qb;
+      }),
+    };
     mockWalletService = {
       getBalance: vi.fn().mockResolvedValue(100000),
     };
@@ -58,6 +72,7 @@ describe('BroadcastsService', () => {
       mockContactRepo,
       mockTemplateRepo,
       mockGupshupAppRepo,
+      mockMessageRepo,
       mockNumberHealthService,
       mockWalletService,
       mockPricingService,
@@ -132,6 +147,73 @@ describe('BroadcastsService', () => {
         { broadcastId: 'bcast-1' },
         expect.objectContaining({ attempts: 1 }),
       );
+    });
+  });
+
+  describe('deliveryStats', () => {
+    const bcast = {
+      id: 'bcast-1',
+      shopId: 'shop-1',
+      status: 'sending',
+      totalRecipients: 100,
+      name: 'Diwali Blast',
+      templateName: 'festive_offer_v2',
+      templateLanguage: 'en',
+      templateVariables: [],
+      audienceTag: null,
+      gupshupAppId: null,
+      sentCount: 90,
+      failedCount: 4,
+      skippedCount: 0,
+      costPaise: 0,
+      error: null,
+      createdAt: new Date('2026-09-01'),
+      updatedAt: new Date('2026-09-01'),
+    };
+
+    beforeEach(() => {
+      mockBroadcastRepo.findOne.mockResolvedValue(bcast);
+    });
+
+    it('throws 404 for another shop\'s campaign', async () => {
+      mockBroadcastRepo.findOne.mockResolvedValue(null);
+      await expect(service.deliveryStats('shop-999', 'bcast-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('aggregates webhook-driven statuses into campaign totals', async () => {
+      mockMessageRepo.rawRows = [
+        { status: 'sent', count: '10' },
+        { status: 'delivered', count: '70' },
+        { status: 'read', count: '15' },
+        { status: 'failed', count: '4' },
+        { status: 'queued', count: '1' },
+      ];
+
+      const stats = await service.deliveryStats('shop-1', 'bcast-1');
+
+      // scoped to this shop's campaign, in SQL and via the tenant-checked row
+      expect(mockMessageRepo.lastQb.where).toHaveBeenCalledWith(
+        'message.broadcastId = :broadcastId',
+        { broadcastId: 'bcast-1' },
+      );
+      expect(mockMessageRepo.lastQb.andWhere).toHaveBeenCalledWith(
+        'message.shopId = :shopId',
+        { shopId: 'shop-1' },
+      );
+      // delivered counts everything at-least-delivered (delivered ⊇ read)
+      expect(stats.counts).toEqual({ queued: 1, sent: 10, delivered: 85, read: 15, failed: 4 });
+      expect(stats.readRate).toBe(Math.round((15 / 85) * 100));
+      expect(stats.progressPct).toBe(100);
+    });
+
+    it('handles campaigns with no messages yet', async () => {
+      mockMessageRepo.rawRows = [];
+      const stats = await service.deliveryStats('shop-1', 'bcast-1');
+      expect(stats.counts).toEqual({ queued: 0, sent: 0, delivered: 0, read: 0, failed: 0 });
+      expect(stats.readRate).toBeNull();
+      expect(stats.progressPct).toBe(0);
     });
   });
 });

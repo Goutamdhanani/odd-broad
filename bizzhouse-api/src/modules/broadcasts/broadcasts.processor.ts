@@ -193,6 +193,7 @@ export class BroadcastsProcessor extends WorkerHost {
         templateComponents: broadcast.templateComponents || [],
         templateValues: broadcast.templateVariables || [],
         gupshupAppId,
+        broadcastId: broadcast.id,
         contactName: contact.name || undefined,
       });
       broadcast.sentCount += 1;

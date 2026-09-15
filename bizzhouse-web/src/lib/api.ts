@@ -223,6 +223,17 @@ export const broadcastsApi = {
   }) => api.post('/broadcasts', data),
   estimate: (tag?: string, templateName?: string) =>
     api.get('/broadcasts/estimate', { params: { tag, templateName } }),
+  /** Live campaign summary fed by status webhooks (spec §2.1) */
+  stats: (id: string) =>
+    api.get<{
+      broadcastId: string;
+      status: string;
+      totalRecipients: number;
+      counts: { queued: number; sent: number; delivered: number; read: number; failed: number };
+      progressPct: number;
+      readRate: number | null;
+      updatedAt: string;
+    }>(`/broadcasts/${id}/stats`),
 };
 
 // ─── Pricing (platform admin) ──────────────────────────

@@ -42,6 +42,11 @@ export class Message {
   @Column({ type: 'text', name: 'gupshup_app_id', nullable: true })
   gupshupAppId: string | null;
 
+  /** Owning campaign (spec §2.1): lets delivered/read webhook receipts roll
+   *  up into the broadcast's live summary. Null for 1:1 inbox messages. */
+  @Column({ type: 'uuid', name: 'broadcast_id', nullable: true })
+  broadcastId: string | null;
+
   @Column({ type: 'text', default: 'queued' })
   status: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
 

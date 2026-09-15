@@ -56,6 +56,18 @@ export class BroadcastsController {
     return this.broadcastsService.list(shopId, page, limit);
   }
 
+  // Must precede ':id' — "stats" would otherwise be captured as the param.
+  @Get(':id/stats')
+  async deliveryStats(
+    @CurrentTenant('shopId') shopId: string,
+    @Param('id') id: string,
+  ) {
+    if (!shopId) {
+      throw new BadRequestException('No shop associated with this account');
+    }
+    return this.broadcastsService.deliveryStats(shopId, id);
+  }
+
   @Get(':id')
   async getOne(
     @CurrentTenant('shopId') shopId: string,

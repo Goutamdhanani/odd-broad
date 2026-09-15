@@ -10,6 +10,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Broadcast, BroadcastStatus } from './entities/broadcast.entity';
 import { Contact } from '../contacts/entities/contact.entity';
+import { Message } from '../messages/entities/message.entity';
 import { Template, TemplateStatus, TemplateType } from '../templates/entities/template.entity';
 import { GupshupApp } from '../gupshup/entities/gupshup-app.entity';
 import { NumberHealthService } from '../gupshup/number-health.service';
@@ -31,6 +32,8 @@ export class BroadcastsService {
     private readonly templateRepo: Repository<Template>,
     @InjectRepository(GupshupApp)
     private readonly gupshupAppRepo: Repository<GupshupApp>,
+    @InjectRepository(Message)
+    private readonly messageRepo: Repository<Message>,
     private readonly numberHealthService: NumberHealthService,
     private readonly walletService: WalletService,
     private readonly pricingService: PricingService,
@@ -202,6 +205,53 @@ export class BroadcastsService {
     const broadcast = await this.broadcastRepo.findOne({ where: { id, shopId } });
     if (!broadcast) throw new NotFoundException('Broadcast not found');
     return this.serialize(broadcast);
+  }
+
+  /**
+   * Campaign summary (spec §2.1): live sent/delivered/read/failed counts
+   * aggregated from the per-message rows, which status webhooks keep
+   * current. Read-rate is of the delivered (reachable) portion.
+   */
+  async deliveryStats(shopId: string, broadcastId: string) {
+    const broadcast = await this.broadcastRepo.findOne({
+      where: { id: broadcastId, shopId },
+    });
+    if (!broadcast) throw new NotFoundException('Broadcast not found');
+
+    const rows: Array<{ status: string; count: string }> = await this.messageRepo
+      .createQueryBuilder('message')
+      .select('message.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .where('message.broadcastId = :broadcastId', { broadcastId })
+      .andWhere('message.shopId = :shopId', { shopId })
+      .groupBy('message.status')
+      .getRawMany();
+
+    const byStatus: Record<string, number> = {};
+    for (const r of rows) byStatus[r.status] = Number(r.count);
+
+    const queued = byStatus['queued'] || 0;
+    const sent = byStatus['sent'] || 0;
+    const delivered = byStatus['delivered'] || 0;
+    const read = byStatus['read'] || 0;
+    const failed = byStatus['failed'] || 0;
+
+    // Progression semantics: delivered⊇read (a read message was delivered)
+    const atLeastDelivered = delivered + read;
+    const dispatched = queued + sent + atLeastDelivered + failed;
+
+    return {
+      broadcastId: broadcast.id,
+      status: broadcast.status,
+      totalRecipients: broadcast.totalRecipients,
+      counts: { queued, sent, delivered: atLeastDelivered, read, failed },
+      progressPct:
+        broadcast.totalRecipients > 0
+          ? Math.round((dispatched / broadcast.totalRecipients) * 100)
+          : 0,
+      readRate: atLeastDelivered > 0 ? Math.round((read / atLeastDelivered) * 100) : null,
+      updatedAt: broadcast.updatedAt,
+    };
   }
 
   private async countAudience(shopId: string, audienceTag?: string) {

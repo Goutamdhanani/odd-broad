@@ -170,6 +170,7 @@ export class MessagesService {
       costPaise: costPaise,
       payload: storedPayload,
       gupshupAppId: gupshupApp.gupshupAppId,
+      broadcastId: dto.broadcastId || null,
     });
     const savedMessage = await this.messageRepo.save(message);
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Radio,
@@ -14,6 +14,8 @@ import {
   RefreshCw,
   Users,
   MessageSquareText,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -88,6 +90,12 @@ export default function BroadcastsPage() {
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState(false);
+  // Campaign delivery detail (spec §2.1) — fetched from live message statuses
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [stats, setStats] = useState<
+    Record<string, Awaited<ReturnType<typeof broadcastsApi.stats>>['data']>
+  >({});
+  const [statsLoading, setStatsLoading] = useState(false);
   const [showBuilder, setShowBuilder] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -232,6 +240,23 @@ export default function BroadcastsPage() {
     }
   };
 
+  const toggleExpand = async (id: string) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(id);
+    setStatsLoading(true);
+    try {
+      const { data } = await broadcastsApi.stats(id);
+      setStats((prev) => ({ ...prev, [id]: data }));
+    } catch {
+      toast.error('Could not load campaign delivery stats');
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
   // Aggregated, REAL metrics from the shop's own broadcast history
   const metrics = useMemo(() => {
     const totalSent = broadcasts.reduce((a, b) => a + b.sentCount, 0);
@@ -366,6 +391,7 @@ export default function BroadcastsPage() {
             <table className="w-full text-left text-xs">
               <thead className="border-b border-black/[0.06] text-[10px] uppercase font-bold tracking-wider text-[#86868b] bg-black/[0.03]">
                 <tr>
+                  <th className="py-3 px-4 w-8" aria-label="Expand" />
                   <th className="py-3 px-4">Campaign</th>
                   <th className="py-3 px-4">Template</th>
                   <th className="py-3 px-4">Audience</th>
@@ -384,8 +410,22 @@ export default function BroadcastsPage() {
                         )
                       : 0;
                   return (
-                    <tr key={b.id} className="hover:bg-black/[0.03] transition-colors">
-                      <td className="py-3.5 px-4 font-semibold text-[#1d1d1f]">
+                    <Fragment key={b.id}>
+                      <tr
+                        onClick={() => toggleExpand(b.id)}
+                        className={cn(
+                          'transition-colors cursor-pointer',
+                          expandedId === b.id ? 'bg-[#0071e3]/[0.04]' : 'hover:bg-black/[0.03]',
+                        )}
+                      >
+                        <td className="py-3.5 pl-4 text-[#86868b]">
+                          {expandedId === b.id ? (
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 font-semibold text-[#1d1d1f]">
                         {b.name}
                         {b.error && (
                           <div className="text-[10px] text-red-600 font-normal mt-0.5 max-w-[220px] truncate" title={b.error}>
@@ -441,6 +481,58 @@ export default function BroadcastsPage() {
                         {fmtDate(b.createdAt)}
                       </td>
                     </tr>
+                      {expandedId === b.id && (
+                        <tr className="bg-black/[0.02]">
+                          <td colSpan={8} className="px-4 pb-4">
+                            <div className="p-3.5 rounded-xl bg-white border border-black/[0.08]">
+                              <div className="text-[10px] uppercase font-bold tracking-wider text-[#86868b] mb-2.5">
+                                Live delivery summary — fed by WhatsApp status receipts
+                              </div>
+                              {statsLoading && !stats[b.id] ? (
+                                <div className="flex items-center gap-2 text-[11px] text-[#86868b]">
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+                                </div>
+                              ) : !stats[b.id] ? (
+                                <div className="text-[11px] text-[#86868b]">
+                                  Stats not available for this campaign yet.
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap gap-2">
+                                  {(
+                                    [
+                                      { k: 'queued', label: 'Queued', cls: 'text-amber-600 bg-amber-500/[0.07] border-amber-500/20' },
+                                      { k: 'sent', label: 'Sent', cls: 'text-[#0071e3] bg-[#0071e3]/[0.06] border-[#0071e3]/20' },
+                                      { k: 'delivered', label: 'Delivered', cls: 'text-emerald-600 bg-emerald-500/[0.07] border-emerald-500/20' },
+                                      { k: 'read', label: 'Read', cls: 'text-emerald-700 bg-emerald-500/10 border-emerald-500/30' },
+                                      { k: 'failed', label: 'Failed', cls: 'text-red-600 bg-red-500/[0.07] border-red-500/20' },
+                                    ] as const
+                                  ).map(({ k, label, cls }) => (
+                                    <span
+                                      key={k}
+                                      className={cn(
+                                        'px-2.5 py-1 rounded-lg border text-[11px] font-semibold tabular-nums',
+                                        cls,
+                                      )}
+                                    >
+                                      {label}: {stats[b.id].counts[k]}
+                                    </span>
+                                  ))}
+                                  {stats[b.id].readRate != null && (
+                                    <span className="px-2.5 py-1 rounded-lg bg-black/[0.04] text-[11px] font-semibold text-[#1d1d1f] tabular-nums">
+                                      Read rate: {stats[b.id].readRate}%
+                                    </span>
+                                  )}
+                                  <span className="px-2.5 py-1 rounded-lg bg-black/[0.04] text-[11px] font-semibold text-[#6e6e73] tabular-nums">
+                                    Progress: {stats[b.id].progressPct}% of{' '}
+                                    {stats[b.id].totalRecipients}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
