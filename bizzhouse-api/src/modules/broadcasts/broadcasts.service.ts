@@ -307,6 +307,40 @@ export class BroadcastsService {
     };
   }
 
+  /**
+   * Which customers didn't get the message — the failed rows of a campaign
+   * with contact identity + failure reason, newest first. Lets the shop
+   * follow up individually (the "who" behind deliveryStats' counts and
+   * failureReasons).
+   */
+  async failedMessages(shopId: string, broadcastId: string, page = 1, limit = 10) {
+    const broadcast = await this.broadcastRepo.findOne({
+      where: { id: broadcastId, shopId },
+    });
+    if (!broadcast) throw new NotFoundException('Broadcast not found');
+
+    const [rows, total] = await this.messageRepo.findAndCount({
+      where: { broadcastId, shopId, status: 'failed' as const },
+      relations: { contact: true },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return {
+      data: rows.map((m) => ({
+        id: m.id,
+        contactWaId: m.contact?.waId ?? null,
+        contactName: m.contact?.name ?? null,
+        at: m.createdAt,
+        reason: (m.payload as any)?.failureReason ?? null,
+      })),
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
   private async countAudience(shopId: string, audienceTag?: string) {
     const qb = this.contactRepo
       .createQueryBuilder('contact')

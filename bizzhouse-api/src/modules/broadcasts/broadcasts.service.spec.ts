@@ -58,6 +58,7 @@ describe('BroadcastsService', () => {
         return qb;
       }),
       query: vi.fn(() => Promise.resolve([])),
+      findAndCount: vi.fn().mockResolvedValue([[], 0]),
     };
     // query() resolves the mutable reason rows set per-test
     mockMessageRepo.query = vi.fn(() => Promise.resolve(mockMessageRepo.reasonRows));
@@ -232,6 +233,44 @@ describe('BroadcastsService', () => {
       await expect(service.deliveryStats('shop-999', 'bcast-1')).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    it('404s failedMessages for another shop\'s campaign', async () => {
+      mockBroadcastRepo.findOne.mockResolvedValue(null);
+      await expect(service.failedMessages('shop-999', 'bcast-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('lists failed recipients with contact identity and reason', async () => {
+      mockMessageRepo.findAndCount.mockResolvedValue([
+        [
+          {
+            id: 'm-1',
+            createdAt: new Date('2026-09-10'),
+            payload: { failureReason: { code: 131047, title: 'Re-engagement required' } },
+            contact: { waId: '919876543211', name: 'Pooja' },
+          },
+          {
+            id: 'm-2',
+            createdAt: new Date('2026-09-10'),
+            payload: {},
+            contact: { waId: '919876543212', name: null },
+          },
+        ],
+        2,
+      ]);
+
+      const res = await service.failedMessages('shop-1', 'bcast-1');
+      expect(res.total).toBe(2);
+      expect(res.data[0].contactWaId).toBe('919876543211');
+      expect(res.data[0].contactName).toBe('Pooja');
+      expect(res.data[0].reason).toEqual({ code: 131047, title: 'Re-engagement required' });
+      expect(res.data[1].reason).toBeNull();
+      expect(res.data[1].contactWaId).toBe('919876543212');
+      // scoped to this shop + campaign + failed only
+      const where = mockMessageRepo.findAndCount.mock.calls[0][0].where;
+      expect(where).toMatchObject({ broadcastId: 'bcast-1', shopId: 'shop-1', status: 'failed' });
     });
 
     it('aggregates webhook-driven statuses into campaign totals', async () => {

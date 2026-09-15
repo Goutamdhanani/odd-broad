@@ -96,6 +96,9 @@ export default function BroadcastsPage() {
   const [stats, setStats] = useState<
     Record<string, Awaited<ReturnType<typeof broadcastsApi.stats>>['data']>
   >({});
+  const [failedList, setFailedList] = useState<
+    Record<string, Awaited<ReturnType<typeof broadcastsApi.failedMessages>>['data']>
+  >({});
   const [statsLoading, setStatsLoading] = useState(false);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
@@ -266,8 +269,12 @@ export default function BroadcastsPage() {
     setExpandedId(id);
     setStatsLoading(true);
     try {
-      const { data } = await broadcastsApi.stats(id);
-      setStats((prev) => ({ ...prev, [id]: data }));
+      const [{ data: s }, { data: f }] = await Promise.all([
+        broadcastsApi.stats(id),
+        broadcastsApi.failedMessages(id),
+      ]);
+      setStats((prev) => ({ ...prev, [id]: s }));
+      setFailedList((prev) => ({ ...prev, [id]: f }));
     } catch {
       toast.error('Could not load campaign delivery stats');
     } finally {
@@ -581,6 +588,38 @@ export default function BroadcastsPage() {
                                       <span>{r.title || 'Unknown error'}</span>
                                     </div>
                                   ))}
+                                </div>
+                              )}
+                              {!!failedList[b.id]?.data?.length && (
+                                <div className="mt-2.5 pt-2.5 border-t border-black/[0.06]">
+                                  <div className="text-[10px] font-semibold text-[#86868b] mb-1.5">
+                                    Failed recipients{failedList[b.id].total > failedList[b.id].data.length ? ` (showing ${failedList[b.id].data.length} of ${failedList[b.id].total})` : ''}:
+                                  </div>
+                                  <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                                    {failedList[b.id].data.map((f) => (
+                                      <div
+                                        key={f.id}
+                                        className="flex items-center justify-between gap-2 text-[11px] bg-black/[0.02] rounded-lg px-2.5 py-1.5"
+                                      >
+                                        <span className="font-semibold text-[#1d1d1f] truncate">
+                                          {f.contactName || f.contactWaId || 'Unknown'}
+                                          {f.contactName && f.contactWaId && (
+                                            <span className="font-normal text-[#86868b] font-mono text-[10px] ml-1.5">
+                                              {f.contactWaId}
+                                            </span>
+                                          )}
+                                        </span>
+                                        <span className="text-[#86868b] shrink-0 tabular-nums">
+                                          {f.reason?.code ? `Error ${f.reason.code}` : f.reason?.title || 'failed'}
+                                          {' · '}
+                                          {new Date(f.at).toLocaleTimeString('en-IN', {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                          })}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
                               )}
                             </div>

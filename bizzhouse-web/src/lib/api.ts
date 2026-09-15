@@ -252,6 +252,20 @@ export const broadcastsApi = {
     }>(`/broadcasts/${id}/stats`),
   /** Stop a queued/sending campaign — remaining recipients are skipped */
   cancel: (id: string) => api.post(`/broadcasts/${id}/cancel`),
+  /** Which customers the campaign failed to reach, with error + timestamp */
+  failedMessages: (id: string, page = 1) =>
+    api.get<{
+      data: Array<{
+        id: string;
+        contactWaId: string | null;
+        contactName: string | null;
+        at: string;
+        reason: { code?: number | string; title?: string } | null;
+      }>;
+      total: number;
+      page: number;
+      totalPages: number;
+    }>(`/broadcasts/${id}/messages/failed`, { params: { page } }),
 };
 
 // ─── Pricing (platform admin) ──────────────────────────

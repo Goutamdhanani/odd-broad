@@ -111,6 +111,12 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   green; verified live against real Postgres with a temp campaign +
   failed rows (grouping correct, smoke data cleaned up, demo counts
   restored to 2 messages / 0 broadcasts).
+- **Pass #15 — Failed recipients drill-down**: `GET
+  /api/broadcasts/:id/messages/failed` (tenant-checked, paginated, newest
+  first) joins failed campaign messages with contact identity + reason;
+  the expanded campaign panel now lists WHO didn't get the message
+  (name/number + error + time, scrollable, "showing N of M"). 2 new tests
+  — 135/135 API green, web 20/20 + build; route + 404 guard verified live.
 
 ## Recent completed batches (pre-automation)
 

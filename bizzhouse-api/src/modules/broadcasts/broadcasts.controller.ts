@@ -79,6 +79,18 @@ export class BroadcastsController {
     return this.broadcastsService.cancel(shopId, id);
   }
 
+  @Get(':id/messages/failed')
+  async failedMessages(
+    @CurrentTenant('shopId') shopId: string,
+    @Param('id') id: string,
+    @Query('page') page = 1,
+  ) {
+    if (!shopId) {
+      throw new BadRequestException('No shop associated with this account');
+    }
+    return this.broadcastsService.failedMessages(shopId, id, Number(page) || 1);
+  }
+
   @Get(':id')
   async getOne(
     @CurrentTenant('shopId') shopId: string,
