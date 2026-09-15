@@ -57,6 +57,12 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   circuits to success with the current balance, so a retried send can
   never debit the shop twice. Fixes the one asymmetric guard in the
   ledger. 1 new test + updated mocks — 102/102 API green.
+- **Pass #8 — Inbox N+1 eliminated**: `getConversations` no longer runs
+  2 queries per contact — now one `contact` page + `DISTINCT ON` newest-
+  message + `GROUP BY` unread-count aggregates = 3 fixed round-trips per
+  page (60 queries for 30 threads → 2). Response shape byte-identical
+  (camelCase mapping kept, `count`→`unread`), verified live against real
+  Postgres via the demo shop. 2 new tests — 104/104 API green.
 
 ## Recent completed batches (pre-automation)
 

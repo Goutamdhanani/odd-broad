@@ -299,50 +299,68 @@ export class MessagesService {
       take: limit,
     });
 
-    const conversations = await Promise.all(
-      contacts.map(async (contact) => {
-        const lastMessage = await this.messageRepo.findOne({
-          where: { shopId, contactId: contact.id },
-          order: { createdAt: 'DESC' },
-        });
+    // Batched instead of 2 queries per contact (was an N+1 on the hottest
+    // screen): DISTINCT ON picks the newest message per thread, GROUP BY
+    // counts unreads. Three fixed round-trips per page, any size.
+    const contactIds = contacts.map((c) => c.id);
 
-        const unreadCount = await this.messageRepo.count({
-          where: {
-            shopId,
-            contactId: contact.id,
-            direction: 'inbound' as const,
-            status: 'delivered' as const,
-          },
-        });
+    const [lastRows, unreadRows] = contactIds.length
+      ? await Promise.all([
+          this.messageRepo.query(
+            `SELECT DISTINCT ON (m.contact_id)
+               m.id, m.direction, m.message_type, m.status, m.payload, m.created_at, m.contact_id
+             FROM messages m
+             WHERE m.shop_id = $1 AND m.contact_id = ANY($2::uuid[])
+             ORDER BY m.contact_id, m.created_at DESC`,
+            [shopId, contactIds],
+          ),
+          this.messageRepo.query(
+            `SELECT contact_id, COUNT(*)::int AS unread
+             FROM messages
+             WHERE shop_id = $1 AND contact_id = ANY($2::uuid[])
+               AND direction = 'inbound' AND status = 'delivered'
+             GROUP BY contact_id`,
+            [shopId, contactIds],
+          ),
+        ])
+      : [[], []];
 
-        const inSessionWindow =
-          !!contact.lastInboundAt &&
-          Date.now() - new Date(contact.lastInboundAt).getTime() < 24 * 60 * 60 * 1000;
-
-        return {
-          contact: {
-            id: contact.id,
-            waId: contact.waId,
-            name: contact.name,
-            optedIn: contact.optedIn,
-            tags: contact.tags,
-            sessionOpen: inSessionWindow,
-            assignedUserId: contact.assignedUserId ?? null,
-          },
-          lastMessage: lastMessage
-            ? {
-                id: lastMessage.id,
-                direction: lastMessage.direction,
-                messageType: lastMessage.messageType,
-                status: lastMessage.status,
-                payload: lastMessage.payload,
-                createdAt: lastMessage.createdAt,
-              }
-            : null,
-          unreadCount,
-        };
-      }),
+    const lastByContact = new Map<string, any>(
+      (lastRows as any[]).map((r) => [String(r.contact_id), r]),
     );
+    const unreadByContact = new Map<string, number>(
+      (unreadRows as any[]).map((r) => [String(r.contact_id), Number(r.unread)]),
+    );
+
+    const conversations = contacts.map((contact) => {
+      const last = lastByContact.get(String(contact.id));
+      const inSessionWindow =
+        !!contact.lastInboundAt &&
+        Date.now() - new Date(contact.lastInboundAt).getTime() < 24 * 60 * 60 * 1000;
+
+      return {
+        contact: {
+          id: contact.id,
+          waId: contact.waId,
+          name: contact.name,
+          optedIn: contact.optedIn,
+          tags: contact.tags,
+          sessionOpen: inSessionWindow,
+          assignedUserId: contact.assignedUserId ?? null,
+        },
+        lastMessage: last
+          ? {
+              id: last.id,
+              direction: last.direction,
+              messageType: last.message_type,
+              status: last.status,
+              payload: last.payload,
+              createdAt: last.created_at,
+            }
+          : null,
+        unreadCount: unreadByContact.get(String(contact.id)) ?? 0,
+      };
+    });
 
     conversations.sort((a, b) => {
       const aTime = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;

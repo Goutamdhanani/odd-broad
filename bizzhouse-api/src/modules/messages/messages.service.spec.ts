@@ -20,6 +20,8 @@ describe('MessagesService', () => {
       update: vi.fn(async () => {}),
       findOne: vi.fn(),
       findAndCount: vi.fn(),
+      count: vi.fn(),
+      query: vi.fn(),
     };
 
     mockContactRepo = {
@@ -298,6 +300,69 @@ describe('MessagesService', () => {
       expect(result.status).toBe('sent');
       expect(mockPricingService.getCost).toHaveBeenCalledWith('utility', 'IN');
       expect(mockWalletService.debitForMessage).toHaveBeenCalledWith('shop-1', 30, 'msg-uuid-1');
+    });
+  });
+
+  describe('getConversations — batched (no per-contact queries)', () => {
+    it('fetches last-message + unread counts in two batched queries', async () => {
+      mockContactRepo.find.mockResolvedValue([
+        {
+          id: 'c-1',
+          waId: '919876543211',
+          name: 'Pooja',
+          optedIn: true,
+          tags: ['vip'],
+          lastInboundAt: new Date(),
+          assignedUserId: null,
+        },
+        {
+          id: 'c-2',
+          waId: '919876543212',
+          name: 'Rahul',
+          optedIn: false,
+          tags: [],
+          lastInboundAt: null,
+          assignedUserId: null,
+        },
+      ]);
+      mockMessageRepo.query
+        .mockResolvedValueOnce([
+          {
+            id: 'm-1',
+            contact_id: 'c-1',
+            direction: 'inbound',
+            message_type: 'text',
+            status: 'delivered',
+            payload: { body: 'Hi there' },
+            created_at: new Date('2026-09-15T10:00:00Z'),
+          },
+        ])
+        .mockResolvedValueOnce([{ contact_id: 'c-1', unread: '3' }]);
+
+      const result = await service.getConversations('shop-1');
+
+      // exactly the two aggregate queries — no per-contact findOne/count
+      expect(mockMessageRepo.query).toHaveBeenCalledTimes(2);
+      expect(mockMessageRepo.findOne).not.toHaveBeenCalled();
+      expect(mockMessageRepo.count).not.toHaveBeenCalled();
+
+      const c1 = result.data.find((d: any) => d.contact.id === 'c-1');
+      expect(c1.lastMessage.id).toBe('m-1');
+      expect(c1.lastMessage.messageType).toBe('text'); // snake_case → camelCase
+      expect(c1.unreadCount).toBe(3);
+      expect(c1.contact.sessionOpen).toBe(true);
+
+      const c2 = result.data.find((d: any) => d.contact.id === 'c-2');
+      expect(c2.lastMessage).toBeNull();
+      expect(c2.unreadCount).toBe(0);
+      expect(c2.contact.sessionOpen).toBe(false);
+    });
+
+    it('runs no aggregate queries when the page has no contacts', async () => {
+      mockContactRepo.find.mockResolvedValue([]);
+      const result = await service.getConversations('shop-1');
+      expect(result.data).toEqual([]);
+      expect(mockMessageRepo.query).not.toHaveBeenCalled();
     });
   });
 
