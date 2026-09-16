@@ -131,6 +131,12 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   amber "Unprocessed webhook events" card listing stuck events with a
   confirm-guarded Replay button. 3 new tests — 143/143 API green, web
   20/20 + build; live: admin lists, shop-owner 403s, unknown id 404.
+- **Pass #18 — Contacts consent filter**: `?optedIn=true|false` filters the
+  list AND the CSV export (invalid values ignored safely); segmented
+  All / Opted-in / Not opted-in control beside the search bar. Lets shops
+  find contacts lacking Meta consent before campaign planning. 1 new test
+  — 144/144 API green, web 20/20 + build; live totals true:2 false:0
+  garbage:2 (ignored).
 
 ## Recent completed batches (pre-automation)
 

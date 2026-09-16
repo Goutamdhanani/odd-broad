@@ -28,11 +28,12 @@ export class ContactsController {
     @Query('limit') limit = 30,
     @Query('search') search?: string,
     @Query('tag') tag?: string,
+    @Query('optedIn') optedIn?: string,
   ) {
     if (!shopId) {
       throw new BadRequestException('No shop associated with this account');
     }
-    return this.contactsService.findAll(shopId, page, limit, search, tag);
+    return this.contactsService.findAll(shopId, page, limit, search, tag, optedIn);
   }
 
   // Must be declared BEFORE ':id' so "export" is not matched as a param.
@@ -42,11 +43,12 @@ export class ContactsController {
     @CurrentTenant('shopId') shopId: string,
     @Query('search') search?: string,
     @Query('tag') tag?: string,
+    @Query('optedIn') optedIn?: string,
   ) {
     if (!shopId) {
       throw new BadRequestException('No shop associated with this account');
     }
-    const csv = await this.contactsService.exportCsv(shopId, search, tag);
+    const csv = await this.contactsService.exportCsv(shopId, search, tag, optedIn);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader(
       'Content-Disposition',

@@ -127,3 +127,39 @@ describe('ContactsService.bulkImport (batched)', () => {
     expect(mockRepo.save).not.toHaveBeenCalled(); // nothing touched
   });
 });
+
+describe('ContactsService opt-in filter (findAll)', () => {
+  function makeQb() {
+    const calls: Array<{ sql: string; params: any }> = [];
+    const qb: any = {
+      where: vi.fn().mockReturnThis(),
+      andWhere: vi.fn((sql: string, params: any) => {
+        calls.push({ sql, params });
+        return qb;
+      }),
+      orderBy: vi.fn().mockReturnThis(),
+      addOrderBy: vi.fn().mockReturnThis(),
+      skip: vi.fn().mockReturnThis(),
+      take: vi.fn().mockReturnThis(),
+      getManyAndCount: vi.fn().mockResolvedValue([[], 0]),
+      getMany: vi.fn().mockResolvedValue([]),
+      calls,
+    };
+    return qb;
+  }
+
+  it('adds the consent predicate only for a valid flag', async () => {
+    const qb = makeQb();
+    const svc = new ContactsService({
+      createQueryBuilder: vi.fn(() => qb),
+    } as any);
+
+    await svc.findAll('shop-1', 1, 20, undefined, undefined, 'false');
+    expect(qb.calls.some((c) => c.sql.includes('contact.optedIn = :optedIn') && c.params.optedIn === false)).toBe(true);
+
+    const qb2 = makeQb();
+    const svc2 = new ContactsService({ createQueryBuilder: vi.fn(() => qb2) } as any);
+    await svc2.findAll('shop-1', 1, 20, undefined, undefined, 'garbage');
+    expect(qb2.calls.length).toBe(0); // invalid values ignored — never breaks the query
+  });
+});

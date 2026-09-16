@@ -87,6 +87,7 @@ export default function ContactsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [optedFilter, setOptedFilter] = useState<'' | 'true' | 'false'>('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newContact, setNewContact] = useState({ waId: '', name: '', tags: '' });
   const [adding, setAdding] = useState(false);
@@ -100,20 +101,23 @@ export default function ContactsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
-  const loadContacts = useCallback(async (p: number, search?: string) => {
-    setLoading(true);
-    try {
-      const { data } = await contactsApi.list(p, 20, search);
-      setContacts(data.data || []);
-      setTotal(data.total || 0);
-      setTotalPages(data.totalPages || 1);
-      setPage(p);
-    } catch {
-      // silently fail
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadContacts = useCallback(
+    async (p: number, search?: string) => {
+      setLoading(true);
+      try {
+        const { data } = await contactsApi.list(p, 20, search, undefined, optedFilter || undefined);
+        setContacts(data.data || []);
+        setTotal(data.total || 0);
+        setTotalPages(data.totalPages || 1);
+        setPage(p);
+      } catch {
+        // silently fail
+      } finally {
+        setLoading(false);
+      }
+    },
+    [optedFilter],
+  );
 
   useEffect(() => {
     loadContacts(1);
@@ -183,7 +187,7 @@ export default function ContactsPage() {
               onClick={async () => {
                 setExporting(true);
                 try {
-                  await contactsApi.exportCsv(searchQuery || undefined);
+                  await contactsApi.exportCsv(searchQuery || undefined, undefined, optedFilter || undefined);
                   toast.success('Contacts exported as CSV');
                 } catch (err) {
                   toast.error(getErrorMessage(err, 'Export failed'));
@@ -220,16 +224,40 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      {/* â”€â”€â”€ Search Bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--bh-text-muted)]" />
-        <input
-          type="text"
-          placeholder="Search by name or phone number..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-11 pr-4 h-11 rounded-[14px] bg-[#f5f5f7] border border-[var(--bh-hairline)] text-sm text-[#1d1d1f] placeholder:text-[var(--bh-text-muted)] focus:border-[#0071e3] focus:outline-none"
-        />
+      {/* ─── Search Bar + consent filter ───────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="relative max-w-md w-full">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--bh-text-muted)]" />
+          <input
+            type="text"
+            placeholder="Search by name or phone number..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-11 pr-4 h-11 rounded-[14px] bg-[#f5f5f7] border border-[var(--bh-hairline)] text-sm text-[#1d1d1f] placeholder:text-[var(--bh-text-muted)] focus:border-[#0071e3] focus:outline-none"
+          />
+        </div>
+        <div className="flex items-center gap-1 p-1 rounded-[14px] bg-[#f5f5f7] border border-[var(--bh-hairline)] shrink-0">
+          {(
+            [
+              { v: '', label: 'All' },
+              { v: 'true', label: 'Opted-in' },
+              { v: 'false', label: 'Not opted-in' },
+            ] as const
+          ).map((f) => (
+            <button
+              key={f.v || 'all'}
+              onClick={() => setOptedFilter(f.v)}
+              className={cn(
+                'px-3 py-1.5 rounded-[10px] text-xs font-semibold transition-all cursor-pointer',
+                optedFilter === f.v
+                  ? 'bg-white text-[#1d1d1f] shadow-[0_1px_4px_rgba(0,0,0,0.08)]'
+                  : 'text-[#86868b] hover:text-[#1d1d1f]',
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* â”€â”€â”€ Bounded Table Plane (60px Rows) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}

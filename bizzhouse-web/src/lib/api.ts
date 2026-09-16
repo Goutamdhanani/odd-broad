@@ -146,8 +146,8 @@ export const messagesApi = {
 
 // ─── Contacts ──────────────────────────────────────────
 export const contactsApi = {
-  list: (page = 1, limit = 30, search?: string, tag?: string) =>
-    api.get('/contacts', { params: { page, limit, search, tag } }),
+  list: (page = 1, limit = 30, search?: string, tag?: string, optedIn?: string) =>
+    api.get('/contacts', { params: { page, limit, search, tag, optedIn } }),
   get: (id: string) => api.get(`/contacts/${id}`),
   create: (data: { waId: string; name?: string; tags?: string[] }) =>
     api.post('/contacts', data),
@@ -156,9 +156,9 @@ export const contactsApi = {
   import: (contacts: Array<{ waId: string; name?: string; tags?: string[] }>) =>
     api.post('/contacts/import', { contacts }),
   /** Download the current (optionally filtered) contact list as a CSV file */
-  exportCsv: async (search?: string, tag?: string) => {
+  exportCsv: async (search?: string, tag?: string, optedIn?: string) => {
     const { data } = await api.get('/contacts/export', {
-      params: { search, tag },
+      params: { search, tag, optedIn },
       responseType: 'blob',
     });
     const url = URL.createObjectURL(data as Blob);

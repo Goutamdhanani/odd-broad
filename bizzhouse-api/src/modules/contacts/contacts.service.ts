@@ -36,7 +36,7 @@ export class ContactsService {
   }
 
   /** Export the SAME filters the list view uses, unpaginated. */
-  async exportCsv(shopId: string, search?: string, tag?: string): Promise<string> {
+  async exportCsv(shopId: string, search?: string, tag?: string, optedIn?: string): Promise<string> {
     const qb = this.contactRepo
       .createQueryBuilder('contact')
       .where('contact.shopId = :shopId', { shopId })
@@ -51,6 +51,9 @@ export class ContactsService {
     if (tag) {
       qb.andWhere(':tag = ANY(contact.tags)', { tag });
     }
+    if (optedIn === 'true' || optedIn === 'false') {
+      qb.andWhere('contact.optedIn = :optedIn', { optedIn: optedIn === 'true' });
+    }
 
     return this.buildCsv(await qb.getMany());
   }
@@ -61,6 +64,7 @@ export class ContactsService {
     limit = 30,
     search?: string,
     tag?: string,
+    optedIn?: string,
   ) {
     const queryBuilder = this.contactRepo.createQueryBuilder('contact')
       .where('contact.shopId = :shopId', { shopId })
@@ -77,6 +81,12 @@ export class ContactsService {
 
     if (tag) {
       queryBuilder.andWhere(':tag = ANY(contact.tags)', { tag });
+    }
+
+    if (optedIn === 'true' || optedIn === 'false') {
+      queryBuilder.andWhere('contact.optedIn = :optedIn', {
+        optedIn: optedIn === 'true',
+      });
     }
 
     const [data, total] = await queryBuilder.getManyAndCount();
