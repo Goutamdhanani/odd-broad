@@ -428,6 +428,13 @@ export class MessagesService {
     return { id: saved.id, assignedUserId: saved.assignedUserId ?? null };
   }
 
+  /**
+   * Persist an inbound webhook message — idempotent. Gupshup retries
+   * un-acked deliveries (and admins can replay events), so the same wamid
+   * can arrive twice; a second copy must NOT show up as a duplicate chat
+   * bubble. Check-first, with the partial unique index (migration
+   * 1789600000000) as the concurrent-retry backstop.
+   */
   async storeInboundMessage(
     shopId: string,
     contactId: string,
@@ -435,6 +442,14 @@ export class MessagesService {
     messageType: string,
     payload: Record<string, any>,
   ): Promise<Message> {
+    const existing = await this.messageRepo.findOne({
+      where: { gupshupMessageId },
+    });
+    if (existing) {
+      this.logger.log(`Duplicate inbound event for ${gupshupMessageId} — skipped`);
+      return existing;
+    }
+
     const message = this.messageRepo.create({
       shopId,
       contactId,
@@ -445,7 +460,19 @@ export class MessagesService {
       costPaise: 0,
       payload,
     });
-    return this.messageRepo.save(message);
+    try {
+      return await this.messageRepo.save(message);
+    } catch (err: any) {
+      // Lost a race against a concurrent retry — return the winner's row.
+      if (err?.code === '23505') {
+        const winner = await this.messageRepo.findOne({ where: { gupshupMessageId } });
+        if (winner) {
+          this.logger.log(`Concurrent duplicate for ${gupshupMessageId} — deduped via unique index`);
+          return winner;
+        }
+      }
+      throw err;
+    }
   }
 
   /**

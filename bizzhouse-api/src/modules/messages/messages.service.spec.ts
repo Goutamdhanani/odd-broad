@@ -366,6 +366,69 @@ describe('MessagesService', () => {
     });
   });
 
+  describe('storeInboundMessage — webhook retry dedupe', () => {
+    it('skips insert when the same wamid was already stored', async () => {
+      const stored = { id: 'msg-existing', gupshupMessageId: 'wamid-1' };
+      mockMessageRepo.findOne.mockResolvedValue(stored);
+
+      const result = await service.storeInboundMessage(
+        'shop-1',
+        'contact-1',
+        'wamid-1',
+        'text',
+        { body: 'hello' },
+      );
+
+      expect(result).toBe(stored);
+      expect(mockMessageRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('inserts when no prior row exists', async () => {
+      mockMessageRepo.findOne.mockResolvedValue(null);
+      mockMessageRepo.save.mockImplementation(async (d) => d);
+
+      const result = await service.storeInboundMessage(
+        'shop-1',
+        'contact-1',
+        'wamid-new',
+        'text',
+        { body: 'hi' },
+      );
+
+      expect(mockMessageRepo.save).toHaveBeenCalledTimes(1);
+      expect(result.gupshupMessageId).toBe('wamid-new');
+    });
+
+    it('falls back to the winning row when a concurrent retry wins the race', async () => {
+      const winner = { id: 'msg-winner', gupshupMessageId: 'wamid-2' };
+      mockMessageRepo.findOne
+        .mockResolvedValueOnce(null) // pre-check: nothing yet
+        .mockResolvedValueOnce(winner); // post-violation: race winner exists
+      mockMessageRepo.save.mockRejectedValueOnce(
+        Object.assign(new Error('duplicate key'), { code: '23505' }),
+      );
+
+      const result = await service.storeInboundMessage(
+        'shop-1',
+        'contact-1',
+        'wamid-2',
+        'text',
+        { body: 'hi' },
+      );
+
+      expect(result).toBe(winner);
+    });
+
+    it('rethrows non-duplicate save failures', async () => {
+      mockMessageRepo.findOne.mockResolvedValue(null);
+      mockMessageRepo.save.mockRejectedValueOnce(new Error('db gone'));
+
+      await expect(
+        service.storeInboundMessage('shop-1', 'c-1', 'wamid-x', 'text', {}),
+      ).rejects.toThrow('db gone');
+    });
+  });
+
   describe('updateMessageStatus', () => {
     it('should progress message status forward', async () => {
       mockMessageRepo.findOne.mockResolvedValue({

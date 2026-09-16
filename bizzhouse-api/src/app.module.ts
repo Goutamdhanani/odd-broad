@@ -45,6 +45,7 @@ import { TeamAndAssignment1789200000000 } from './database/migrations/1789200000
 import { CarouselTemplatesAndNumberHealth1789300000000 } from './database/migrations/1789300000000-CarouselTemplatesAndNumberHealth';
 import { BroadcastMessageAttribution1789400000000 } from './database/migrations/1789400000000-BroadcastMessageAttribution';
 import { CacheEmbedSignupLink1789500000000 } from './database/migrations/1789500000000-CacheEmbedSignupLink';
+import { UniqueMessageIdIndex1789600000000 } from './database/migrations/1789600000000-UniqueMessageIdIndex';
 
 @Module({
   imports: [
@@ -89,6 +90,7 @@ import { CacheEmbedSignupLink1789500000000 } from './database/migrations/1789500
           CarouselTemplatesAndNumberHealth1789300000000,
           BroadcastMessageAttribution1789400000000,
           CacheEmbedSignupLink1789500000000,
+          UniqueMessageIdIndex1789600000000,
         ],
         migrationsRun: true,
         synchronize: false,

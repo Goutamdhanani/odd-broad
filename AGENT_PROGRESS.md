@@ -137,6 +137,14 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   find contacts lacking Meta consent before campaign planning. 1 new test
   — 144/144 API green, web 20/20 + build; live totals true:2 false:0
   garbage:2 (ignored).
+- **Pass #19 — Inbound webhook retry dedupe**: `storeInboundMessage` is now
+  idempotent (check-by-wamid first; partial unique index
+  `UQ_messages_gupshup_message_id` from migration 1789600000000 as the
+  concurrent-race backstop, with 23505 → return winner). Closes the
+  duplicate-message hole opened by provider retries (10s ack rule) and
+  by the pass #17 admin replay tool. 4 new tests — 148/148 API green;
+  verified end-to-end: same webhook delivered twice to the live endpoint
+  → exactly 1 stored message (test rows cleaned after).
 
 ## Recent completed batches (pre-automation)
 
