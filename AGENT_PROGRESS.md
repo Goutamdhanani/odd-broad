@@ -117,6 +117,13 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   the expanded campaign panel now lists WHO didn't get the message
   (name/number + error + time, scrollable, "showing N of M"). 2 new tests
   — 135/135 API green, web 20/20 + build; route + 404 guard verified live.
+- **Pass #16 — Webhook-queue stall detector in /health**: third check counts
+  `webhook_events` unprocessed for >15 min (worker wedged while DB+Redis
+  still say 'up' = silent inbound outage). Reported 'warn' + stalledEvents
+  count WITHOUT 503-ing the endpoint (operator signal, not a crash); skipped
+  entirely when the DB probe already failed; its own query errors degrade to
+  warn. 5 new tests — 140/140 API green; live health now shows
+  `webhookQueue: { status: up, stalledEvents: 0 }`.
 
 ## Recent completed batches (pre-automation)
 

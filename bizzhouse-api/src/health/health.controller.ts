@@ -15,13 +15,18 @@ export class HealthController {
 
   @Get()
   async check() {
-    const checks: Record<string, { status: string; latencyMs?: number; error?: string }> = {};
+    const checks: Record<
+      string,
+      { status: string; latencyMs?: number; error?: string; stalledEvents?: number }
+    > = {};
 
     // PostgreSQL — a real round-trip, not just "app is up"
     const dbStart = Date.now();
+    let dbUp = false;
     try {
       await this.dataSource.query('SELECT 1');
       checks.database = { status: 'up', latencyMs: Date.now() - dbStart };
+      dbUp = true;
     } catch (err: any) {
       checks.database = { status: 'down', error: err?.message };
     }
@@ -39,7 +44,31 @@ export class HealthController {
       checks.redis = { status: 'down', error: err?.message };
     }
 
-    const healthy = Object.values(checks).every((c) => c.status === 'up');
+    // Webhook queue stall detector — DB+Redis can both be 'up' while the
+    // BullMQ worker is wedged and inbound events pile up unprocessed.
+    // Reported as 'warn' (visible in checks, never 503s the endpoint):
+    // a stalled queue needs operator attention, not a health-probe restart.
+    if (dbUp) {
+      try {
+        const rows = await this.dataSource.query(
+          `SELECT COUNT(*)::int AS stalled
+           FROM webhook_events
+           WHERE processed = false
+             AND received_at < now() - interval '15 minutes'`,
+        );
+        const stalled = Number(rows?.[0]?.stalled ?? rows?.[0]?.[0]?.stalled ?? 0);
+        checks.webhookQueue = {
+          status: stalled > 0 ? 'warn' : 'up',
+          stalledEvents: stalled,
+        };
+      } catch (err: any) {
+        checks.webhookQueue = { status: 'warn', error: err?.message };
+      }
+    }
+
+    const healthy = Object.values(checks).every(
+      (c) => c.status === 'up' || c.status === 'warn',
+    );
 
     if (!healthy) {
       throw new ServiceUnavailableException({
