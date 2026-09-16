@@ -124,6 +124,13 @@ Admin login: admin@123 / password@123 (seeded; LoginDto allows non-email identif
   entirely when the DB probe already failed; its own query errors degrade to
   warn. 5 new tests — 140/140 API green; live health now shows
   `webhookQueue: { status: up, stalledEvents: 0 }`.
+- **Pass #17 — Admin webhook replay tooling** (pairs with #16): `GET
+  /api/webhooks/admin/pending` (super_admin only; oldest 50 unprocessed
+  events with age) + `POST /api/webhooks/admin/replay/:id` re-enqueues the
+  stored raw payload through the normal pipeline. Admin overview gains an
+  amber "Unprocessed webhook events" card listing stuck events with a
+  confirm-guarded Replay button. 3 new tests — 143/143 API green, web
+  20/20 + build; live: admin lists, shop-owner 403s, unknown id 404.
 
 ## Recent completed batches (pre-automation)
 

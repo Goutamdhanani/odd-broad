@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { shopsApi } from '@/lib/api';
+import { shopsApi, webhookOpsApi } from '@/lib/api';
 import { formatPaise } from '@/lib/utils';
 import {
   ArrowUpRight,
   RefreshCw,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
 import type { ShopSummary } from '@/lib/types';
@@ -43,6 +45,19 @@ export default function AdminOverviewPage() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [pendingEvents, setPendingEvents] = useState<Awaited<
+    ReturnType<typeof webhookOpsApi.pending>
+  >['data'] | null>(null);
+  const [replayingId, setReplayingId] = useState<string | null>(null);
+
+  const loadPending = useCallback(async () => {
+    try {
+      const { data } = await webhookOpsApi.pending();
+      setPendingEvents(data);
+    } catch {
+      setPendingEvents(null);
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     setRefreshing(true);
@@ -63,7 +78,25 @@ export default function AdminOverviewPage() {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    loadPending();
+  }, [loadData, loadPending]);
+
+  const handleReplay = async (id: string) => {
+    if (
+      !window.confirm(
+        'Replay this event through the webhook pipeline now? Side effects of the original delivery would run again.',
+      )
+    ) {
+      return;
+    }
+    setReplayingId(id);
+    try {
+      await webhookOpsApi.replay(id);
+      await loadPending();
+    } finally {
+      setReplayingId(null);
+    }
+  };
 
   const totalBalance = stats?.shops.totalWalletBalancePaise ?? 0;
   const activeShops = stats?.shops.active ?? shops.filter((s) => s.status === 'active').length;
@@ -155,6 +188,57 @@ export default function AdminOverviewPage() {
       </div>
 
       {/* â"€â"€â"€ Bounded Table Plane: Registered Tenants â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
+      {/* ─── Pending webhook events (pairs with /health stall detector) ─── */}
+      {pendingEvents && pendingEvents.data.length > 0 && (
+        <div className="bh-card-solid overflow-hidden border border-amber-500/30 shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
+          <div className="p-5 border-b border-[var(--bh-hairline)] flex items-center justify-between bg-amber-500/[0.06]">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              <h2 className="type-section-title text-base text-[#1d1d1f]">
+                Unprocessed webhook events ({pendingEvents.data.length})
+              </h2>
+            </div>
+            <button
+              onClick={loadPending}
+              className="p-1.5 rounded-lg text-[#86868b] hover:text-[#1d1d1f] hover:bg-black/[0.03] cursor-pointer"
+              title="Refresh"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="divide-y divide-black/[0.06]">
+            {pendingEvents.data.map((e) => (
+              <div
+                key={e.id}
+                className="px-5 py-3 flex items-center justify-between gap-3 text-xs"
+              >
+                <div className="min-w-0">
+                  <div className="font-semibold text-[#1d1d1f]">
+                    {e.eventType || 'unknown'} · {e.gupshupAppId || 'no app id'}
+                  </div>
+                  <div className="text-[11px] text-[#86868b]">
+                    received {new Date(e.receivedAt).toLocaleString('en-IN')} · stuck{' '}
+                    <span className={cn('font-semibold', e.ageSeconds > 900 ? 'text-red-600' : 'text-amber-600')}>
+                      {e.ageSeconds >= 3600
+                        ? `${(e.ageSeconds / 3600).toFixed(1)}h`
+                        : `${Math.floor(e.ageSeconds / 60)}m`}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleReplay(e.id)}
+                  disabled={replayingId === e.id}
+                  className="bh-btn-secondary h-7 px-2.5 text-[11px] flex items-center gap-1.5 cursor-pointer shrink-0"
+                >
+                  {replayingId === e.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                  <span>Replay</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bh-card-solid overflow-hidden border border-[var(--bh-hairline)] shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
         <div className="p-6 border-b border-[var(--bh-hairline)] flex items-center justify-between bg-[#f5f5f7]">
           <div>

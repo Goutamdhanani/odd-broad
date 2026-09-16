@@ -337,4 +337,21 @@ export const gupshupApi = {
   }) => api.post('/gupshup/onboard', data),
 };
 
+// ─── Admin: webhook ops (counterpart to the /health stall detector) ──
+export const webhookOpsApi = {
+  pending: () =>
+    api.get<{
+      count: number;
+      data: Array<{
+        id: string;
+        gupshupAppId: string | null;
+        eventType: string | null;
+        receivedAt: string;
+        ageSeconds: number;
+      }>;
+    }>('/webhooks/admin/pending'),
+  replay: (id: string) => api.post(`/webhooks/admin/replay/${id}`),
+};
+
 export default api;
+
